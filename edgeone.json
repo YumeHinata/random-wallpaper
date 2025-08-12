@@ -1,0 +1,15 @@
+{
+  "routes": [
+    {
+      "path": "/random-wallpaper",
+      "function": "random-wallpaper.js"
+    }
+  ],
+  "security": {
+    "rate_limit": [{
+      "path": "/random-wallpaper",
+      "threshold": "100/1m",
+      "action": "block"
+    }]
+  }
+}
