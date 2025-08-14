@@ -2,7 +2,7 @@
 export async function onRequestGet(context) {
     try {
         // 1. 可配置的远程URL列表文件（支持自由调整）
-        const URL_LIST = "https://gitee.com/YumeHinata/random-wallpaper/raw/main/urls.txt";
+        const URL_LIST = context.env.URL_LIST;
         
         // 2. 获取URL列表
         const response = await fetch(URL_LIST);
