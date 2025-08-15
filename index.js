@@ -28,8 +28,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
 // 获取URL数量
 async function fetchURLCount() {
+    urlTXT = context.env.URL_LIST
     try {
-        const response = await fetch(context.env.URL_LIST);
+        const response = await fetch(urlTXT);
 
         if (!response.ok) {
             throw new Error('无法获取URL列表');
