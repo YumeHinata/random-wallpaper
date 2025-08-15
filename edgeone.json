@@ -1,6 +1,9 @@
 {
   "routes": [
     {
+      "path": "/",
+      "function": "index.js"
+    },{
       "path": "/random-wallpaper",
       "function": "random-wallpaper.js"
     }
