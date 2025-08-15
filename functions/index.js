@@ -35,7 +35,9 @@ export async function onRequestGet(context) {
 </head>
 <body>
     <div class="particles" id="particles"></div>
-    <div class="notification" id="notification"><i class="fas fa-info-circle"></i> <span id="notification-text"></span></div>
+    <div class="notification" id="notification">
+        <i class="fas fa-info-circle"></i> <span id="notification-text"></span>
+    </div>
     
     <div class="container">
         <div class="header">
@@ -51,24 +53,24 @@ export async function onRequestGet(context) {
             <div class="code-block">${API_BASE_URL}/random-wallpaper</div>
             <p>直接在img标签中使用此URL获取随机图片</p>
         </div>
+        
         <div class="image-container" id="image-container">
-            <div class="loading" id="loading"><div class="spinner"></div><p>正在获取随机图片...</p></div>
-            <img id="wallpaper" alt="Pixiv随机图片">
-            <div class="image-info">
-                <span><i class="fas fa-image"></i> 点击图片前往Pixiv</span>
-                <span><i class="fas fa-mouse-pointer"></i> 点击按钮获取新图片</span>
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>正在获取随机图片...</p>
             </div>
-            <div class="debug-info" id="debug-info"></div>
+            <img id="wallpaper" alt="随机图片">
         </div>
         
         <div class="control-panel">
-            <button class="btn btn-primary" onclick="loadRandomImage()"><i class="fas fa-sync-alt"></i> 获取新图片</button>
+            <button class="btn btn-primary" onclick="loadRandomImage()">
+                <i class="fas fa-sync-alt"></i> 获取新图片
+            </button>
         </div>
     </div>
     
+    <!-- 主脚本 -->
     <script>
-        // 全局变量
-        let currentPixivUrl = null;
         const APP_CONFIG = {
             API_BASE_URL: "${API_BASE_URL}"
         };
@@ -76,13 +78,7 @@ export async function onRequestGet(context) {
         // 页面加载完成后执行
         document.addEventListener('DOMContentLoaded', function () {
             createParticles();
-            loadRandomImage(); // 直接加载图片
-            
-            document.getElementById('image-container').addEventListener('click', function () {
-                if (currentPixivUrl) window.open(currentPixivUrl, '_blank');
-                else showNotification('正在获取图片信息，请稍后再试');
-            });
-            
+            loadRandomImage();
             window.addEventListener('resize', adjustLayout);
             adjustLayout();
         });
@@ -91,85 +87,57 @@ export async function onRequestGet(context) {
         function loadRandomImage() {
             const loading = document.getElementById('loading');
             const wallpaper = document.getElementById('wallpaper');
-            const debugInfo = document.getElementById('debug-info');
             
+            // 显示加载动画
             loading.style.display = 'flex';
             loading.style.opacity = '1';
-            currentPixivUrl = null;
             
+            // 添加时间戳避免缓存
             const timestamp = Date.now();
             const apiUrl = \`\${APP_CONFIG.API_BASE_URL}/random-wallpaper?t=\${timestamp}\`;
             
+            // 使用XMLHttpRequest获取重定向URL
             const xhr = new XMLHttpRequest();
             xhr.open('GET', apiUrl, true);
+            
+            // 设置响应类型为arraybuffer以避免CORS问题
             xhr.responseType = 'arraybuffer';
             
             xhr.onload = function () {
                 if (xhr.status >= 200 && xhr.status < 300) {
+                    // 获取最终URL（重定向后的URL）
                     const finalUrl = xhr.responseURL;
-                    debugInfo.textContent = \`图片URL: \${finalUrl}\`;
+                    
+                    // 设置图片源
                     wallpaper.src = finalUrl;
                     
-                    const pixivId = extractPixivId(finalUrl);
-                    if (pixivId) {
-                        currentPixivUrl = \`https://www.pixiv.net/artworks/\${pixivId}\`;
-                        debugInfo.textContent += \` | 图片ID: \${pixivId}\`;
-                        showNotification('点击图片可跳转到Pixiv原图页面');
-                    } else {
-                        debugInfo.textContent += ' | 无法提取图片ID';
-                        showNotification('无法提取图片ID');
-                    }
-                    
+                    // 添加旋转动画到按钮
                     const btn = document.querySelector('.btn-primary');
                     btn.style.transform = 'rotate(360deg)';
-                    setTimeout(() => { btn.style.transform = ''; }, 500);
-                } else handleImageError('请求失败，状态码: ' + xhr.status);
+                    setTimeout(() => {
+                        btn.style.transform = '';
+                    }, 500);
+                } else {
+                    handleImageError('请求失败，状态码: ' + xhr.status);
+                }
             };
             
-            xhr.onerror = function () { handleImageError('网络请求失败'); };
+            xhr.onerror = function () {
+                handleImageError('网络请求失败');
+            };
+            
             xhr.send();
         }
         
         // 处理图片加载错误
         function handleImageError(error) {
             console.error('加载图片失败:', error);
-            const debugInfo = document.getElementById('debug-info');
-            debugInfo.textContent = \`错误: \${error}\`;
             showNotification('加载图片失败，请重试');
 
             const loading = document.getElementById('loading');
             loading.innerHTML =
                 '<p>无法加载图片，请稍后再试</p>' +
                 '<button class="btn btn-primary" style="margin-top: 15px;" onclick="loadRandomImage()">重新加载</button>';
-        }
-        
-        // 从重定向URL中提取图片ID
-        function extractPixivId(url) {
-            // URL结构示例: 
-            // https://pximg.yumehinata.com/img-master/img/2019/03/11/00/13/58/73619430_p0_master1200.jpg?token=...
-
-            // 使用正则表达式提取图片ID
-            const match = url.match(/\/(\\d+)_p\\d+_/);
-            if (match && match[1]) {
-                return match[1];
-            }
-
-            // 备选方案：从路径中提取数字ID
-            const parts = url.split('/');
-            for (let i = parts.length - 1; i >= 0; i--) {
-                const part = parts[i];
-                if (/^\\d+_p\\d+_/.test(part)) {
-                    return part.split('_')[0];
-                }
-            }
-
-            // 尝试从文件名中提取
-            const filenameMatch = url.match(/\/(\\d+)\\.[a-zA-Z]+(\\?|$)/);
-            if (filenameMatch && filenameMatch[1]) {
-                return filenameMatch[1];
-            }
-
-            return null;
         }
         
         // 调整布局以确保内容在视口内
@@ -244,6 +212,7 @@ export async function onRequestGet(context) {
             handleImageError('图片加载失败');
         };
     </script>
+    <script src="../pixiv.js"></script>
 </body>
 </html>`;
 
