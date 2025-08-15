@@ -1,3 +1,5 @@
+# DEMO
+https://rdimg.yumehinata.com
 # 概述
 这是一个基于edgeone pages function的随机图片api的项目。只需要下载这个仓库的文件或者发布的版本，部署到edgeone pages完成项目设置即可使用。
 # 使用方式
