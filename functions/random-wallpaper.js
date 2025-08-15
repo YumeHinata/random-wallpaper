@@ -47,7 +47,7 @@ async function generateSignedUrl(originalUrl) {
                 token = await generateMD5(signStr);
                 urlObj.searchParams.append("token", token);
                 urlObj.searchParams.append("t", timestamp);
-                break;
+                return urlObj.toString();
             case "A":
                 // 处理A类型的鉴权
                 // 生成签名
@@ -56,10 +56,12 @@ async function generateSignedUrl(originalUrl) {
                 MD5Token = await generateMD5(signStr);
                 token = timestamp + "-" + randomString + "-" + "0" + "-" + MD5Token;
                 urlObj.searchParams.append("token", token);
-                break;
+                return urlObj.toString();
         }   
+    }else{
+        return urlObj.toString();
     }
-    return urlObj.toString();
+    
 }
 
 // MD5生成函数
