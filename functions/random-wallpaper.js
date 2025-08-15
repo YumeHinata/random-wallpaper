@@ -30,15 +30,15 @@ export async function onRequestGet(context) {
 // 生成签名URL的函数
 async function generateSignedUrl(originalUrl) {
     // 解析URL获取路径部分
-    const urlObj = new URL(originalUrl);
-    const resourcePath = urlObj.pathname + urlObj.search;
+    var urlObj = new URL(originalUrl);
+    var resourcePath = urlObj.pathname + urlObj.search;
     // 生成时间戳
-    const timestamp = Math.floor(Date.now() / 1000).toString();
+    var timestamp = Math.floor(Date.now() / 1000).toString();
     //生成0-100位随机字符串
-    const randomString = Math.random().toString(36).substring(2, 102);
+    var randomString = Math.random().toString(36).substring(2, 102);
     //判断是否需要鉴权
     if (context.env.TOKEN_TYPE != 0) {
-        let secretKey = context.env.SECRET_KEY;
+        var secretKey = context.env.SECRET_KEY;
         switch (context.env.TOKEN_TYPE) {
             case "D":
                 // 处理D类型的鉴权
