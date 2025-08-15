@@ -3,8 +3,7 @@ export async function onRequestGet(context) {
     try {
         // 获取环境变量
         const URL_LIST = context.env.URL_LIST || "";
-        const OVERVIEW_HTML = context.env.OVERVIEW_HTML || 
-            '<p>按自己的需求添加内容</p>';
+        const OVERVIEW_HTML = context.env.OVERVIEW_HTML || '<p>按自己的需求添加内容</p>';
         const INDEX_TITLE = context.env.INDEX_TITLE || "按自己需求添加标题";
         
         // 获取当前域名
@@ -52,8 +51,19 @@ export async function onRequestGet(context) {
             <div class="code-block">${API_BASE_URL}/random-wallpaper</div>
             <p>直接在img标签中使用此URL获取随机图片</p>
         </div>
+        <div class="image-container" id="image-container">
+            <div class="loading" id="loading"><div class="spinner"></div><p>正在获取随机图片...</p></div>
+            <img id="wallpaper" alt="Pixiv随机图片">
+            <div class="image-info">
+                <span><i class="fas fa-image"></i> 点击图片前往Pixiv</span>
+                <span><i class="fas fa-mouse-pointer"></i> 点击按钮获取新图片</span>
+            </div>
+            <div class="debug-info" id="debug-info"></div>
+        </div>
         
-        <!-- 其余HTML结构保持不变 -->
+        <div class="control-panel">
+            <button class="btn btn-primary" onclick="loadRandomImage()"><i class="fas fa-sync-alt"></i> 获取新图片</button>
+        </div>
     </div>
     
     <script>
@@ -66,7 +76,7 @@ export async function onRequestGet(context) {
         // 页面加载完成后执行
         document.addEventListener('DOMContentLoaded', function () {
             createParticles();
-            loadRandomImage();
+            loadRandomImage(); // 直接加载图片
             
             document.getElementById('image-container').addEventListener('click', function () {
                 if (currentPixivUrl) window.open(currentPixivUrl, '_blank');
@@ -77,18 +87,156 @@ export async function onRequestGet(context) {
             adjustLayout();
         });
 
-        // 加载随机图片（保持不变）
+        // 加载随机图片
         function loadRandomImage() {
-            // ... 函数实现保持不变 ...
+            const loading = document.getElementById('loading');
+            const wallpaper = document.getElementById('wallpaper');
+            const debugInfo = document.getElementById('debug-info');
+            
+            loading.style.display = 'flex';
+            loading.style.opacity = '1';
+            currentPixivUrl = null;
+            
+            const timestamp = Date.now();
+            const apiUrl = \`\${APP_CONFIG.API_BASE_URL}/random-wallpaper?t=\${timestamp}\`;
+            
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', apiUrl, true);
+            xhr.responseType = 'arraybuffer';
+            
+            xhr.onload = function () {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    const finalUrl = xhr.responseURL;
+                    debugInfo.textContent = \`图片URL: \${finalUrl}\`;
+                    wallpaper.src = finalUrl;
+                    
+                    const pixivId = extractPixivId(finalUrl);
+                    if (pixivId) {
+                        currentPixivUrl = \`https://www.pixiv.net/artworks/\${pixivId}\`;
+                        debugInfo.textContent += \` | 图片ID: \${pixivId}\`;
+                        showNotification('点击图片可跳转到Pixiv原图页面');
+                    } else {
+                        debugInfo.textContent += ' | 无法提取图片ID';
+                        showNotification('无法提取图片ID');
+                    }
+                    
+                    const btn = document.querySelector('.btn-primary');
+                    btn.style.transform = 'rotate(360deg)';
+                    setTimeout(() => { btn.style.transform = ''; }, 500);
+                } else handleImageError('请求失败，状态码: ' + xhr.status);
+            };
+            
+            xhr.onerror = function () { handleImageError('网络请求失败'); };
+            xhr.send();
         }
         
-        // 其他函数保持不变
-        function handleImageError(error) { /* ... */ }
-        function extractPixivId(url) { /* ... */ }
-        function adjustLayout() { /* ... */ }
-        function createParticles() { /* ... */ }
-        function hideLoader() { /* ... */ }
-        function showNotification(text) { /* ... */ }
+        // 处理图片加载错误
+        function handleImageError(error) {
+            console.error('加载图片失败:', error);
+            const debugInfo = document.getElementById('debug-info');
+            debugInfo.textContent = \`错误: \${error}\`;
+            showNotification('加载图片失败，请重试');
+
+            const loading = document.getElementById('loading');
+            loading.innerHTML =
+                '<p>无法加载图片，请稍后再试</p>' +
+                '<button class="btn btn-primary" style="margin-top: 15px;" onclick="loadRandomImage()">重新加载</button>';
+        }
+        
+        // 从重定向URL中提取图片ID
+        function extractPixivId(url) {
+            // URL结构示例: 
+            // https://pximg.yumehinata.com/img-master/img/2019/03/11/00/13/58/73619430_p0_master1200.jpg?token=...
+
+            // 使用正则表达式提取图片ID
+            const match = url.match(/\/(\\d+)_p\\d+_/);
+            if (match && match[1]) {
+                return match[1];
+            }
+
+            // 备选方案：从路径中提取数字ID
+            const parts = url.split('/');
+            for (let i = parts.length - 1; i >= 0; i--) {
+                const part = parts[i];
+                if (/^\\d+_p\\d+_/.test(part)) {
+                    return part.split('_')[0];
+                }
+            }
+
+            // 尝试从文件名中提取
+            const filenameMatch = url.match(/\/(\\d+)\\.[a-zA-Z]+(\\?|$)/);
+            if (filenameMatch && filenameMatch[1]) {
+                return filenameMatch[1];
+            }
+
+            return null;
+        }
+        
+        // 调整布局以确保内容在视口内
+        function adjustLayout() {
+            const container = document.querySelector('.container');
+            const windowHeight = window.innerHeight;
+
+            // 如果窗口高度较小，减少上下的padding
+            if (windowHeight < 700) {
+                container.style.maxHeight = '95vh';
+                container.style.padding = '10px';
+            } else {
+                container.style.maxHeight = '90vh';
+                container.style.padding = '20px';
+            }
+        }
+        
+        // 创建背景粒子效果
+        function createParticles() {
+            const container = document.getElementById('particles');
+            const particleCount = 15;
+
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.classList.add('particle');
+
+                // 随机大小
+                const size = Math.random() * 6 + 2;
+                particle.style.width = \`\${size}px\`;
+                particle.style.height = \`\${size}px\`;
+
+                // 随机位置
+                particle.style.left = \`\${Math.random() * 100}%\`;
+                particle.style.top = \`\${Math.random() * 100}%\`;
+
+                // 随机动画延迟
+                particle.style.animationDelay = \`\${Math.random() * 15}s\`;
+
+                // 随机颜色
+                const colors = ['rgba(255, 126, 95, 0.7)', 'rgba(254, 180, 123, 0.7)', 'rgba(255, 179, 71, 0.7)'];
+                particle.style.background = colors[Math.floor(Math.random() * colors.length)];
+
+                container.appendChild(particle);
+            }
+        }
+        
+        // 隐藏加载动画
+        function hideLoader() {
+            const loading = document.getElementById('loading');
+            loading.style.opacity = '0';
+            setTimeout(() => {
+                loading.style.display = 'none';
+            }, 300);
+        }
+        
+        // 显示通知
+        function showNotification(text) {
+            const notification = document.getElementById('notification');
+            const textElement = document.getElementById('notification-text');
+
+            textElement.textContent = text;
+            notification.classList.add('show');
+
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
         
         // 图片加载事件
         document.getElementById('wallpaper').onload = hideLoader;
