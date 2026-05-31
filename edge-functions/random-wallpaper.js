@@ -63,14 +63,8 @@ export default async function onRequest(context) {
         // ====== 生成鉴权 URL ======
         const signedUrl = await generateSignedUrl(originalUrl, TOKEN_TYPE, SECRET_KEY);
 
-        // ====== 返回 307 重定向 ======
-        return new Response(null, {
-            status: 307,
-            headers: {
-                "Location": signedUrl,
-                ...NO_CACHE_HEADERS
-            }
-        });
+        
+        return await handleStreamProxy(signedUrl, context.request, NO_CACHE_HEADERS);
 
     } catch (error) {
         return new Response(`[边缘函数错误]: ${error.message}`, { 
@@ -114,4 +108,61 @@ async function generateMD5(str) {
     const hashBuffer = await crypto.subtle.digest("MD5", data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * 完美的流式反代封装函数
+ * @param {string} signedUrl - 带鉴权的源站图片URL
+ * @param {Request} request - 原始请求对象，用于提取UA等信息
+ * @param {Object} noCacheHeaders - 统一的防缓存响应头
+ */
+async function handleStreamProxy(signedUrl, request, noCacheHeaders) {
+    try {
+        // 边缘节点代为发起请求
+        const imageResponse = await fetch(signedUrl, {
+            method: "GET",
+            headers: {
+                "User-Agent": request.headers.get("User-Agent") || "Mozilla/5.0",
+                "Accept": request.headers.get("Accept") || "image/*",
+                "Accept-Encoding": request.headers.get("Accept-Encoding") || ""
+            }
+        });
+
+        // 如果源站挂了，直接报错
+        if (!imageResponse.ok) {
+            return new Response(`[源站错误] 状态码: ${imageResponse.status}`, { 
+                status: 500,
+                headers: noCacheHeaders 
+            });
+        }
+
+        // 组装响应头
+        const responseHeaders = new Headers();
+        
+        // 继承源站必带的媒体属性
+        const keepHeaders = ['content-type', 'content-length', 'accept-ranges', 'etag'];
+        for (const headerName of keepHeaders) {
+            if (imageResponse.headers.has(headerName)) {
+                responseHeaders.set(headerName, imageResponse.headers.get(headerName));
+            }
+        }
+
+        // 注入防缓存头
+        for (const [key, value] of Object.entries(noCacheHeaders)) {
+            responseHeaders.set(key, value);
+        }
+        responseHeaders.set("Access-Control-Allow-Origin", "*"); // 补个跨域
+
+        // 返回流式二进制数据
+        return new Response(imageResponse.body, {
+            status: 200,
+            headers: responseHeaders
+        });
+
+    } catch (e) {
+        return new Response(`[反代传输异常]: ${e.message}`, { 
+            status: 500,
+            headers: noCacheHeaders 
+        });
+    }
 }
