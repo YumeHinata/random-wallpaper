@@ -9,15 +9,15 @@ export default async function onRequest(context) {
         const URL_LIST = context.env.URL_LIST || "";
         const OVERVIEW_HTML = context.env.OVERVIEW_HTML || '<p>按自己的需求添加内容</p>';
         const INDEX_TITLE = context.env.INDEX_TITLE || "按自己需求添加标题";
-        
+
         // 从 context.request 获取当前域名
         const requestUrl = new URL(context.request.url);
         const domain = requestUrl.hostname;
         const API_BASE_URL = `https://${domain}`;
-        
+
         const now = Date.now();
         let urlCount = cachedUrlCount;
-        
+
         if (URL_LIST && (!urlCount || (now - lastCountFetched > COUNT_CACHE_TTL))) {
             try {
                 const cacheBuster = URL_LIST.includes('?') ? `&_t=${now}` : `?_t=${now}`;
@@ -27,12 +27,12 @@ export default async function onRequest(context) {
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
                     }
                 });
-                
+
                 if (response.ok) {
                     const text = await response.text();
                     const urls = text.split('\n').filter(url => url.trim() !== '');
                     urlCount = urls.length;
-                    
+
                     cachedUrlCount = urlCount;
                     lastCountFetched = now;
                 }
@@ -40,7 +40,7 @@ export default async function onRequest(context) {
                 urlCount = cachedUrlCount || 0;
             }
         }
-        
+
         // 完整的HTML模板（保持不变）
         const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -92,64 +92,167 @@ export default async function onRequest(context) {
         const APP_CONFIG = { API_BASE_URL: "${API_BASE_URL}" };
 
         document.addEventListener('DOMContentLoaded', function () {
-            createParticles();
-            loadRandomImage();
-            window.addEventListener('resize', adjustLayout);
-            adjustLayout();
-        });
+    createParticles();
+    loadRandomImage();
+    window.addEventListener('resize', adjustLayout);
+    adjustLayout();
+});
 
-        function loadRandomImage() {
-            const loading = document.getElementById('loading');
-            const wallpaper = document.getElementById('wallpaper');
-            loading.style.display = 'flex';
-            loading.style.opacity = '1';
-            const timestamp = Date.now();
-            const apiUrl = \`\${APP_CONFIG.API_BASE_URL}/random-wallpaper?t=\${timestamp}\`;
-            
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', apiUrl, true);
-            xhr.responseType = 'arraybuffer';
-            
-            xhr.onload = function () {
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    const finalUrl = xhr.responseURL;
-                    wallpaper.src = finalUrl;
-                    const btn = document.querySelector('.btn-primary');
-                    btn.style.transform = 'rotate(360deg)';
-                    setTimeout(() => { btn.style.transform = ''; }, 500);
-                } else {
-                    handleImageError('请求失败，状态码: ' + xhr.status);
-                }
-            };
-            xhr.onerror = function () { handleImageError('网络请求失败'); };
-            xhr.send();
+let currentPixivUrl = null;
+let imageReady = false;
+
+async function loadRandomImage() {
+
+    const loading = document.getElementById('loading');
+    const wallpaper = document.getElementById('wallpaper');
+
+    loading.style.display = 'flex';
+    loading.style.opacity = '1';
+
+    try {
+
+        const timestamp = Date.now();
+        const apiUrl =
+            APP_CONFIG.API_BASE_URL +
+            "/random-wallpaper?t=" +
+            Date.now();
+        const response = await fetch(apiUrl,{
+            cache:"no-store"
+    });
+
+        if (!response.ok) {
+            throw new Error("HTTP " + response.status);
         }
-        
-        function handleImageError(error) {
-            console.error('加载图片失败:', error);
-            showNotification('加载图片失败，请重试');
-            const loading = document.getElementById('loading');
-            loading.innerHTML = '<p>无法加载图片，请稍后再试</p><button class="btn btn-primary" style="margin-top: 15px;" onclick="loadRandomImage()">重新加载</button>';
-        }
-        
-        function adjustLayout() {
-            const container = document.querySelector('.container');
-            const windowHeight = window.innerHeight;
-            if (windowHeight < 700) {
-                container.style.maxHeight = '95vh'; container.style.padding = '10px';
-            } else {
-                container.style.maxHeight = '90vh'; container.style.padding = '20px';
-            }
-        }
-        
-        function createParticles() {
-            const container = document.getElementById('particles');
-            const particleCount = 15;
-            for (let i = 0; i < particleCount; i++) {
-                const particle = document.createElement('div');
-                particle.classList.add('particle');
-                const size = Math.random() * 6 + 2;
-                particle.style.width = \`\${size}px\`; particle.style.height = \`\${size}px\`;
+
+        // ===== 读取 Header =====
+
+        const pixivId = response.headers.get("X-Pixiv-Id");
+
+        const pixivId = response.headers.get("X-Pixiv-Id");
+
+const nextPixivUrl = pixivId
+    ? "https://www.pixiv.net/artworks/" + pixivId
+    : null;
+    }
+
+    // ===== 图片 =====
+
+    const blob = await response.blob();
+
+    // 释放上一张图片
+    if (wallpaper.dataset.objectUrl) {
+        URL.revokeObjectURL(wallpaper.dataset.objectUrl);
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+
+    wallpaper.dataset.objectUrl = objectUrl;
+
+    wallpaper.onload = function () {
+
+    imageReady = true;
+
+    currentPixivUrl = nextPixivUrl;
+
+    hideLoader();
+
+};
+
+document
+.getElementById("image-container")
+.addEventListener("click",function(){
+
+    if(!imageReady){
+
+        showNotification("图片尚未加载完成");
+
+        return;
+
+    }
+
+    if(!currentPixivUrl){
+
+        showNotification("没有获取到Pixiv链接");
+
+        return;
+
+    }
+
+    window.open(
+        currentPixivUrl,
+        "_blank"
+    );
+
+});
+
+wallpaper.onerror = function () {
+
+    imageReady = false;
+
+    currentPixivUrl = null;
+
+    URL.revokeObjectURL(objectUrl);
+
+    handleImageError("图片解析失败");
+
+};
+
+wallpaper.src = objectUrl;
+
+    const btn = document.querySelector(".btn-primary");
+
+    btn.style.transform = "rotate(360deg)";
+
+    setTimeout(() => {
+        btn.style.transform = "";
+    }, 500);
+
+} catch (e) {
+
+    handleImageError(e.message);
+
+}
+
+}
+
+function handleImageError(error){
+
+    imageReady = false;
+
+    currentPixivUrl = null;
+
+    console.error(error);
+
+    showNotification("加载图片失败");
+
+    const loading =
+        document.getElementById("loading");
+
+    loading.style.display = "flex";
+
+    loading.querySelector("p").textContent =
+        "加载失败，请点击重新获取";
+
+}
+
+function adjustLayout() {
+    const container = document.querySelector('.container');
+    const windowHeight = window.innerHeight;
+    if (windowHeight < 700) {
+        container.style.maxHeight = '95vh'; container.style.padding = '10px';
+    } else {
+        container.style.maxHeight = '90vh'; container.style.padding = '20px';
+    }
+}
+
+function createParticles() {
+    const container = document.getElementById('particles');
+    const particleCount = 15;
+    for (let i = 0; i < particleCount; i++) {
+        const particle = document.createElement('div');
+        particle.classList.add('particle');
+        const size = Math.random() * 6 + 2;
+        particle.style.width = \`\${size}px\`; particle.style.height = \`\${size}px\`;
                 particle.style.left = \`\${Math.random() * 100}%\`; particle.style.top = \`\${Math.random() * 100}%\`;
                 particle.style.animationDelay = \`\${Math.random() * 15}s\`;
                 const colors = ['rgba(255, 126, 95, 0.7)', 'rgba(254, 180, 123, 0.7)', 'rgba(255, 179, 71, 0.7)'];
@@ -184,7 +287,7 @@ export default async function onRequest(context) {
                 'Cache-Control': 'no-cache, no-store, must-revalidate'
             }
         });
-        
+
     } catch (error) {
         return new Response(`页面生成失败: ${error.message}`, { status: 500 });
     }
