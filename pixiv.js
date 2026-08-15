@@ -33,6 +33,7 @@
     // ====== 状态 ======
     let activeLayer = 0;            // 当前显示中的背景层索引
     let currentPixivId = null;      // 当前图片的 Pixiv 作品 ID
+    let currentUserId = null;       // 当前图片作者 ID（右上角作者按钮）
     let isLoading = false;
     let autoTimer = null;
     let notiTimer = null;
@@ -129,11 +130,10 @@
         }
     }
 
-    // 按钮旋转反馈
+    // 按钮旋转反馈（仅换图按钮）
     function setSpinning(manual, on) {
         if (!manual) return;
         btnPrimary.classList.toggle('spinning', on);
-        btnRefresh.classList.toggle('spinning', on);
     }
 
     // 自动轮播定时器（每次手动/自动切换后重置，避免累积）
@@ -154,6 +154,8 @@
     async function updateInfoCard() {
         if (!currentPixivId) {
             infoCard.hidden = true;
+            btnRefresh.hidden = true;
+            currentUserId = null;
             return;
         }
 
@@ -166,12 +168,16 @@
             if (!res.ok) throw new Error('HTTP ' + res.status);
             data = await res.json();
         } catch (e) {
-            infoCard.hidden = true; // 静默降级
+            infoCard.hidden = true;
+            btnRefresh.hidden = true;
+            currentUserId = null;
             return;
         }
 
         if (!data || !data.ok) {
             infoCard.hidden = true;
+            btnRefresh.hidden = true;
+            currentUserId = null;
             return;
         }
 
@@ -179,6 +185,36 @@
         $('info-author').textContent = data.userName || '';
         $('info-id').textContent = '#' + (data.id || currentPixivId);
         infoCard.hidden = false;
+
+        // 右上角作者按钮（头像 + 用户名，点击跳转作者主页）
+        updateAuthorButton(data);
+    }
+
+    // 更新右上角作者按钮；无作者信息时隐藏
+    function updateAuthorButton(data) {
+        if (!data || !data.userId) {
+            btnRefresh.hidden = true;
+            currentUserId = null;
+            return;
+        }
+
+        currentUserId = data.userId;
+        const avatar = $('author-avatar');
+        if (data.avatarUrl) {
+            avatar.onerror = () => { avatar.hidden = true; }; // 加载失败（如 Referer 未放行）只显示用户名
+            avatar.src = data.avatarUrl;
+            avatar.hidden = false;
+        } else {
+            avatar.removeAttribute('src');
+            avatar.hidden = true; // 无头像时只显示用户名
+        }
+        $('author-name').textContent = data.userName || '作者';
+        btnRefresh.hidden = false;
+    }
+
+    function openAuthorPage() {
+        if (!currentUserId) return;
+        window.open('https://www.pixiv.net/users/' + currentUserId, '_blank', 'noopener');
     }
 
     function openPixivPage() {
@@ -231,7 +267,7 @@
         }
 
         // 事件绑定
-        btnRefresh.addEventListener('click', triggerSwitch);
+        btnRefresh.addEventListener('click', openAuthorPage);
         btnPrimary.addEventListener('click', triggerSwitch);
         btnCopy.addEventListener('click', copyApiUrl);
         infoCard.addEventListener('click', openPixivPage);

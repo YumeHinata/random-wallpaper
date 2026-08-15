@@ -1,5 +1,6 @@
 // ====== Pixiv 作品信息代理接口（路由 /pixiv-info?id=xxx） ======
 // 独立于图片反代链路：前端拿到 X-Pixiv-Id 后异步调用本接口获取作品信息
+// 回源走 pximg.yumehinata.com 的 /pxajax/ 反代（EdgeOne 规则引擎 → www.pixiv.net/ajax/）
 // 解决 pixiv 域名被污染问题：客户端无需直连 pixiv，全部由边缘节点代拉
 // 即使本接口失败/超时，也只影响信息展示，不影响图片 API 的任何性能
 
@@ -15,6 +16,12 @@ const BASE_HEADERS = {
 };
 
 const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+
+// 反代基址与 Referer（必须在 yumehinata.com 白名单内，否则 EdgeOne 返回 403）
+const PROXY_BASE = "https://pximg.yumehinata.com/pxajax";
+const PROXY_REFERER = "https://yumehinata.com/";
+// 头像图片反代域名（接口返回的 i.pximg.net 链接替换为该域名，浏览器才能直连）
+const IMG_PROXY_HOST = "https://pximg.yumehinata.com";
 
 export default async function onRequest(context) {
     try {
@@ -35,8 +42,8 @@ export default async function onRequest(context) {
             return jsonResponse(cached.data, 200, "public, max-age=600");
         }
 
-        // 回源 pixiv：优先公开 oEmbed 接口（无需登录，最稳定），失败降级 ajax 接口
-        const data = await fetchFromOEmbed(id) || await fetchFromAjax(id);
+        // 回源 pixiv：ajax 详情接口（oEmbed 已失效，废弃）
+        const data = await fetchFromAjax(id);
 
         if (!data) {
             return jsonResponse({ ok: false, error: "upstream unavailable" }, 502, "public, max-age=60");
@@ -59,49 +66,13 @@ function jsonResponse(data, status, cacheControl) {
     });
 }
 
-// -------- 方案一：公开 oEmbed 接口（无需登录，pixiv 官方对外暴露） --------
-async function fetchFromOEmbed(id) {
-    try {
-        const upstream = await fetch(
-            `https://www.pixiv.net/oembed?url=https%3A%2F%2Fwww.pixiv.net%2Fartworks%2F${id}`,
-            {
-                headers: {
-                    "User-Agent": BROWSER_UA,
-                    "Referer": "https://www.pixiv.net/",
-                    "Accept": "application/json"
-                }
-            }
-        );
-        if (!upstream.ok) return null;
-
-        const raw = await upstream.json();
-        if (!raw || !raw.title) return null;
-
-        // author_url 形如 https://www.pixiv.net/users/123456
-        let userId = "";
-        const userMatch = (raw.author_url || "").match(/\/users\/(\d+)/);
-        if (userMatch) userId = userMatch[1];
-
-        return {
-            ok: true,
-            id: String(id),
-            title: String(raw.title || ""),
-            userName: String(raw.author_name || ""),
-            userId: String(userId || ""),
-            createDate: ""
-        };
-    } catch (e) {
-        return null;
-    }
-}
-
-// -------- 方案二：ajax 详情接口（信息更全，部分情况需登录态） --------
+// -------- ajax 详情接口（经 /pxajax/ 反代，字段为扁平化结构） --------
 async function fetchFromAjax(id) {
     try {
-        const upstream = await fetch(`https://www.pixiv.net/ajax/illust/${id}?_lang=zh`, {
+        const upstream = await fetch(`${PROXY_BASE}/illust/${id}?_lang=zh`, {
             headers: {
                 "User-Agent": BROWSER_UA,
-                "Referer": "https://www.pixiv.net/",
+                "Referer": PROXY_REFERER,
                 "Accept": "application/json"
             }
         });
@@ -111,15 +82,46 @@ async function fetchFromAjax(id) {
         const body = raw && raw.body;
         if (!body) return null;
 
-        return {
+        const userId = String(body.userId || "");
+        const data = {
             ok: true,
             id: String(body.id || id),
             title: String(body.title || ""),
-            userName: String((body.user && body.user.name) || ""),
-            userId: String((body.user && body.user.id) || ""),
-            createDate: String(body.createDate || "")
+            userName: String(body.userName || ""),
+            userId,
+            createDate: String(body.createDate || ""),
+            avatarUrl: ""
         };
+
+        // 头像 URL 需经 /ajax/user/ 接口获取（无法从 userId 推导），失败不影响主信息
+        if (userId) {
+            data.avatarUrl = await fetchAvatar(userId);
+        }
+        return data;
     } catch (e) {
         return null;
+    }
+}
+
+// -------- 头像接口：/ajax/user/{id}?full=1 → body.imageBig --------
+async function fetchAvatar(userId) {
+    try {
+        const upstream = await fetch(`${PROXY_BASE}/user/${userId}?full=1`, {
+            headers: {
+                "User-Agent": BROWSER_UA,
+                "Referer": PROXY_REFERER,
+                "Accept": "application/json"
+            }
+        });
+        if (!upstream.ok) return "";
+
+        const raw = await upstream.json();
+        const imageBig = raw && raw.body && raw.body.imageBig;
+        if (!imageBig) return "";
+
+        // i.pximg.net → pximg.yumehinata.com（浏览器直连会被 DNS 污染阻断）
+        return imageBig.replace("https://i.pximg.net", IMG_PROXY_HOST);
+    } catch (e) {
+        return "";
     }
 }
