@@ -67,16 +67,30 @@
     // 2. 图片获取与双图层轮播（复刻 pixiv 交叉淡入淡出）
     // ============================================================
     // 拉取一张随机图片：流式返回 → blob → objectURL，并读取 X-Pixiv-Id
+    // 拿到 ID 后立即并行预取作品信息（与图片下载/解码同时进行），卡片不再慢一拍
     async function fetchWallpaper() {
         const res = await fetch(API_BASE + '/random-wallpaper?t=' + Date.now(), {
             cache: 'no-store'
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const pixivId = res.headers.get('X-Pixiv-Id') || '';
+        const infoPromise = pixivId ? fetchInfo(pixivId) : null; // 并行预取，不等图片
         const blob = await res.blob();
         const objectUrl = URL.createObjectURL(blob);
         await waitImageDecode(objectUrl);
-        return { objectUrl, pixivId };
+        return { objectUrl, pixivId, infoPromise };
+    }
+
+    // 预取作品信息（带超时，失败/超时 promise 会 reject，由 updateInfoCard 兜底）
+    function fetchInfo(id) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), INFO_TIMEOUT);
+        return fetch(API_BASE + '/pixiv-info?id=' + id, { signal: controller.signal })
+            .then((res) => {
+                clearTimeout(timer);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            });
     }
 
     // 确认图片解码完成（保证淡入时画面完整）
@@ -121,7 +135,7 @@
             }
 
             boot.classList.add('hidden'); // 首屏加载遮罩移除
-            updateInfoCard();
+            updateInfoCard(next.infoPromise);
         } catch (e) {
             showNotification(IS_LOCAL ? '本地预览模式：图片需部署后加载' : '加载图片失败，请稍后重试');
         } finally {
@@ -150,41 +164,54 @@
     // ============================================================
     // 3. 右下角信息卡：X-Pixiv-Id → /pixiv-info 代理接口
     //    信息接口完全独立于图片链路，失败/超时仅隐藏卡片，不影响图片
+    //    卡片/作者按钮与图片同步就绪（预取），并以 opacity 渐入呈现
     // ============================================================
-    async function updateInfoCard() {
+
+    // 元素渐入：display 先可见（透明），强制重排后加 .show 触发 opacity 过渡
+    function reveal(el) {
+        el.hidden = false;
+        void el.offsetWidth; // 强制 reflow，确保 display:none → 可见 后过渡生效
+        el.classList.add('show');
+    }
+
+    function conceal(el) {
+        el.classList.remove('show');
+        el.hidden = true;
+    }
+
+    function hideInfo() {
+        conceal(infoCard);
+        conceal(btnRefresh);
+        currentUserId = null;
+    }
+
+    async function updateInfoCard(prefetched) {
         if (!currentPixivId) {
-            infoCard.hidden = true;
-            btnRefresh.hidden = true;
-            currentUserId = null;
+            hideInfo();
             return;
         }
 
         let data = null;
         try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), INFO_TIMEOUT);
-            const res = await fetch(API_BASE + '/pixiv-info?id=' + currentPixivId, { signal: controller.signal });
-            clearTimeout(timer);
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            data = await res.json();
+            if (prefetched) {
+                data = await prefetched; // 复用预取结果，与图片同步就绪
+            } else {
+                data = await fetchInfo(currentPixivId);
+            }
         } catch (e) {
-            infoCard.hidden = true;
-            btnRefresh.hidden = true;
-            currentUserId = null;
+            hideInfo();
             return;
         }
 
         if (!data || !data.ok) {
-            infoCard.hidden = true;
-            btnRefresh.hidden = true;
-            currentUserId = null;
+            hideInfo();
             return;
         }
 
         $('info-title').textContent = data.title || '';
         $('info-author').textContent = data.userName || '';
         $('info-id').textContent = '#' + (data.id || currentPixivId);
-        infoCard.hidden = false;
+        reveal(infoCard);
 
         // 右上角作者按钮（头像 + 用户名，点击跳转作者主页）
         updateAuthorButton(data);
@@ -193,7 +220,7 @@
     // 更新右上角作者按钮；无作者信息时隐藏
     function updateAuthorButton(data) {
         if (!data || !data.userId) {
-            btnRefresh.hidden = true;
+            conceal(btnRefresh);
             currentUserId = null;
             return;
         }
@@ -209,7 +236,7 @@
             avatar.hidden = true; // 无头像时只显示用户名
         }
         $('author-name').textContent = data.userName || '作者';
-        btnRefresh.hidden = false;
+        reveal(btnRefresh);
     }
 
     function openAuthorPage() {

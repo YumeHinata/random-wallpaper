@@ -82,7 +82,7 @@ body {
     to { transform: rotate(360deg); }
 }
 
-/* ---------- 顶部右上角换图按钮（复刻 pixiv「注册账号」pill 按钮） ---------- */
+/* ---------- 顶部右上角作者按钮（显示当前图片作者头像+用户名，点击跳转作者主页） ---------- */
 .btn-refresh {
     position       : fixed;
     top            : max(16px, env(safe-area-inset-top));
@@ -101,7 +101,18 @@ body {
     cursor         : pointer;
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    transition     : background 0.2s ease;
+    opacity        : 0;
+    pointer-events : none;
+    transition     : opacity 0.5s ease, background 0.2s ease;
+}
+
+.btn-refresh.show {
+    opacity        : 1;
+    pointer-events : auto;
+}
+
+.btn-refresh[hidden] {
+    display: none;
 }
 
 .btn-refresh:hover {
@@ -117,6 +128,10 @@ body {
     flex-shrink   : 0;
     background    : rgba(255, 255, 255, 0.22); /* 加载完成前的占位底色 */
     border        : 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.btn-refresh .author-avatar[hidden] {
+    display: none;
 }
 
 .btn-refresh #author-name {
@@ -336,7 +351,14 @@ body {
     -webkit-backdrop-filter: blur(8px);
     color          : #fff;
     cursor         : pointer;
-    transition     : background 0.2s ease, transform 0.2s ease;
+    opacity        : 0;
+    pointer-events : none;
+    transition     : opacity 0.5s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.info-card.show {
+    opacity        : 1;
+    pointer-events : auto;
 }
 
 .info-card[hidden] {
