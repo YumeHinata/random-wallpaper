@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>随机图片API</title>
+    <link rel="icon" href="/g1logo4.png">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- 全屏背景双图层（交叉淡入淡出） -->
+    <div class="bg-layer" id="bg-a" aria-hidden="true"></div>
+    <div class="bg-layer" id="bg-b" aria-hidden="true"></div>
+    <!-- 底部可读性渐变（随机图亮度不可控，保证文字可读） -->
+    <div class="bg-shade" aria-hidden="true"></div>
+
+    <!-- 首屏加载遮罩 -->
+    <div class="boot" id="boot">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- 顶部右上角换图按钮（复刻 pixiv「注册账号」pill 按钮） -->
+    <button class="btn-refresh" id="btn-refresh" type="button" title="换一张">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <g stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M42 8v12H30"/>
+                <path d="M6 40V28h12"/>
+                <path d="M42 20C39 11.7 32.1 6 24 6 14.6 6 6.9 12.7 5.2 21.6"/>
+                <path d="M6 28c3 8.3 9.9 14 18 14 9.4 0 17.1-6.7 18.8-15.6"/>
+            </g>
+        </svg>
+        <span>换一张</span>
+    </button>
+
+    <!-- 中部白色说明卡片（复刻 pixiv 登录卡片：margin auto + padding-top 定位） -->
+    <main class="card-wrap">
+        <div class="card">
+            <h1 class="card-title" id="card-title">随机图片API</h1>
+            <div class="card-overview" id="card-overview">
+                <p>此 API 提供来自 Pixiv 社区的随机图片，所有图片版权归原作者所有。</p>
+                <p>API 仅提供图片展示服务，请勿用于商业用途。</p>
+            </div>
+            <div class="api-box">
+                <div class="api-label">
+                    <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <g stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M16 12 4 24l12 12"/>
+                            <path d="M32 12l12 12-12 12"/>
+                            <path d="M28 6l-8 36"/>
+                        </g>
+                    </svg>
+                    <span>API 接口地址</span>
+                </div>
+                <div class="code-row">
+                    <code class="api-url" id="api-url">https://example.com/random-wallpaper</code>
+                    <button class="btn-copy" id="btn-copy" type="button" aria-label="复制地址">
+                        <svg id="copy-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <g stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10 44h24a4 4 0 0 0 4-4V18a4 4 0 0 0-4-4H10a4 4 0 0 0-4 4v22a4 4 0 0 0 4 4Z"/>
+                                <path d="M34 12V8a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v24a4 4 0 0 0 4 4h4"/>
+                            </g>
+                        </svg>
+                        <svg id="check-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" hidden>
+                            <path d="M8 24l10 10 22-22" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
+                <p class="api-hint">直接在 img 标签中使用此 URL 即可获取随机图片</p>
+            </div>
+            <div class="url-count" id="url-count">
+                <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <g stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                        <ellipse cx="24" cy="12" rx="16" ry="6"/>
+                        <path d="M8 12v24c0 3.3 7.2 6 16 6s16-2.7 16-6V12"/>
+                        <path d="M8 24c0 3.3 7.2 6 16 6s16-2.7 16-6"/>
+                    </g>
+                </svg>
+                <span>目前系统已收录 <b id="url-count-num">0</b> 条 URL，持续更新中</span>
+            </div>
+            <button class="btn-primary" id="btn-primary" type="button">
+                <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <g stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M42 8v12H30"/>
+                        <path d="M6 40V28h12"/>
+                        <path d="M42 20C39 11.7 32.1 6 24 6 14.6 6 6.9 12.7 5.2 21.6"/>
+                        <path d="M6 28c3 8.3 9.9 14 18 14 9.4 0 17.1-6.7 18.8-15.6"/>
+                    </g>
+                </svg>
+                <span>获取新图片</span>
+            </button>
+        </div>
+    </main>
+
+    <!-- 右下角透明信息卡（复刻 pixiv 背景图作品信息悬浮卡） -->
+    <div class="info-card" id="info-card" role="link" tabindex="0" hidden>
+        <div class="info-title" id="info-title"></div>
+        <div class="info-meta">
+            <span class="info-author">
+                <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <g stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M24 20a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z"/>
+                        <path d="M6 40a18 18 0 0 1 36 0"/>
+                    </g>
+                </svg>
+                <b id="info-author"></b>
+            </span>
+            <span class="info-id">
+                <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <g stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 4h16l24 24-16 16L4 20V4Z"/>
+                        <circle cx="14" cy="14" r="3.5" fill="currentColor" stroke="none"/>
+                    </g>
+                </svg>
+                <span id="info-id"></span>
+            </span>
+            <svg class="info-jump" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <g stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 12H6v30h30V28"/>
+                    <path d="M38 6H26"/>
+                    <path d="M38 6v12"/>
+                    <path d="M38 6 20 24"/>
+                </g>
+            </svg>
+        </div>
+    </div>
+
+    <!-- 底部页脚（复刻 pixiv 固定底栏） -->
+    <footer class="footer">
+        <span id="footer-left">© Random Wallpaper API</span>
+        <span>图片版权归原作者所有</span>
+    </footer>
+
+    <!-- 顶部通知 -->
+    <div class="notification" id="notification">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <g stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="24" cy="24" r="18"/>
+                <path d="M24 14h.01"/>
+                <path d="M20 22h4v12"/>
+            </g>
+        </svg>
+        <span id="notification-text"></span>
+    </div>
+
+    <script src="pixiv.js"></script>
+</body>
+</html>

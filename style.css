@@ -1,454 +1,588 @@
+/* ============================================================
+   Random Wallpaper API - Pixiv 风格首页
+   设计语言：几何主义 / 扁平化（无阴影、大圆角、纯色块）
+   布局：全屏背景双图层淡入淡出 + 中部白色卡片 + 右下信息卡
+   ============================================================ */
+
 * {
     margin     : 0;
     padding    : 0;
     box-sizing : border-box;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 }
 
 html,
 body {
-    height    : 100%;
-    overflow  : hidden;
-    background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
-}
-
-body {
-    display        : flex;
-    flex-direction : column;
-    justify-content: center;
-    align-items    : center;
-    color          : #fff;
-    padding        : 15px;
-    position       : relative;
-}
-
-.container {
-    display       : flex;
-    flex-direction: column;
-    align-items   : center;
-    width         : 100%;
-    max-width     : 800px;
-    height        : 100%;
-    max-height    : 95vh;
-    position      : relative;
-    z-index       : 2;
-    gap           : 12px;
-}
-
-.header {
-    text-align     : center;
-    width          : 100%;
-    padding        : 15px;
-    background     : rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(10px);
-    border-radius  : 15px;
-    border         : 1px solid rgba(255, 255, 255, 0.1);
-    flex-shrink    : 0;
-}
-
-h1 {
-    font-size              : clamp(1.6rem, 5vw, 2.2rem);
-    margin-bottom          : 8px;
-    background             : linear-gradient(to right, #ff7e5f, #feb47b);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    letter-spacing         : 1px;
-}
-
-.url-count {
-    background   : rgba(255, 179, 71, 0.15);
-    border-radius: 30px;
-    padding      : 6px 12px;
-    margin-top   : 12px;
-    font-size    : clamp(0.8rem, 2.5vw, 0.95rem);
-    display      : inline-block;
-    animation    : pulse 2s infinite;
-}
-
-@keyframes pulse {
-    0% {
-        box-shadow: 0 0 0 0 rgba(255, 179, 71, 0.4);
-    }
-
-    70% {
-        box-shadow: 0 0 0 10px rgba(255, 179, 71, 0);
-    }
-
-    100% {
-        box-shadow: 0 0 0 0 rgba(255, 179, 71, 0);
-    }
-}
-
-.api-info {
-    width        : 100%;
-    background   : rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding      : 15px;
-    text-align   : center;
-    flex-shrink  : 0;
-}
-
-.api-info h3 {
-    color          : #ffb347;
-    margin-bottom  : 12px;
-    display        : flex;
-    align-items    : center;
-    justify-content: center;
-    gap            : 8px;
-    font-size      : clamp(1rem, 3.5vw, 1.2rem);
-}
-
-.code-block {
-    background    : rgba(0, 0, 0, 0.3);
-    border-radius : 8px;
-    padding       : 12px;
-    font-family   : 'Courier New', monospace;
-    font-size     : clamp(0.85rem, 3vw, 1rem);
-    overflow-x    : auto;
-    margin        : 12px 0;
-    color         : #ffb347;
-    font-weight   : bold;
-    text-align    : center;
-    letter-spacing: 0.5px;
-    border        : 1px solid rgba(255, 179, 71, 0.3);
-}
-
-.image-container {
-    position       : relative;
-    width          : 100%;
-    flex-grow      : 1;
-    min-height     : 200px;
-    background     : #0a0a1a;
-    border-radius  : 15px;
-    overflow       : hidden;
-    box-shadow     : 0 15px 35px rgba(0, 0, 0, 0.3);
-    border         : 1px solid rgba(255, 255, 255, 0.1);
-    cursor         : pointer;
-    transition     : transform 0.3s ease;
-    display        : flex;
-    justify-content: center;
-    align-items    : center;
-}
-
-.image-container:hover {
-    transform: scale(1.02);
-}
-
-#wallpaper {
-    width     : 100%;
-    height    : 100%;
-    object-fit: cover;
-    transition: opacity 0.5s ease;
-}
-
-.loading {
-    position       : absolute;
-    top            : 0;
-    left           : 0;
-    width          : 100%;
-    height         : 100%;
-    display        : flex;
-    justify-content: center;
-    align-items    : center;
-    flex-direction : column;
-    background     : rgba(10, 10, 26, 0.9);
-    z-index        : 10;
-    transition     : opacity 0.3s ease;
-}
-
-.spinner {
-    width        : 40px;
-    height       : 40px;
-    border       : 4px solid rgba(255, 255, 255, 0.1);
-    border-top   : 4px solid #ff7e5f;
-    border-radius: 50%;
-    animation    : spin 1s linear infinite;
-    margin-bottom: 15px;
-}
-
-@keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-
-    100% {
-        transform: rotate(360deg);
-    }
-}
-
-.control-panel {
-    display        : flex;
-    gap            : 10px;
-    flex-wrap      : wrap;
-    justify-content: center;
-    width          : 100%;
-    flex-shrink    : 0;
-    padding-bottom : 10px;
-}
-
-.btn {
-    padding        : 12px 20px;
-    border         : none;
-    border-radius  : 50px;
-    font-size      : clamp(0.9rem, 3.5vw, 1rem);
-    font-weight    : 600;
-    cursor         : pointer;
-    transition     : all 0.3s ease;
-    display        : flex;
-    align-items    : center;
-    gap            : 8px;
-    min-width      : 140px;
-    justify-content: center;
-}
-
-.btn-primary {
-    background: linear-gradient(to right, #ff7e5f, #feb47b);
-    color     : white;
-    box-shadow: 0 5px 15px rgba(255, 126, 95, 0.4);
-}
-
-.btn-primary:hover {
-    transform : translateY(-3px);
-    box-shadow: 0 8px 20px rgba(255, 126, 95, 0.6);
-}
-
-.particles {
-    position: fixed;
-    top     : 0;
-    left    : 0;
-    width   : 100%;
     height  : 100%;
-    z-index : 1;
     overflow: hidden;
 }
 
-.particle {
-    position     : absolute;
-    background   : rgba(255, 255, 255, 0.5);
-    border-radius: 50%;
-    animation    : float 15s infinite linear;
+body {
+    position  : fixed;
+    inset     : 0;
+    background: #141414;
+    color     : #fff;
+    -webkit-font-smoothing: antialiased;
 }
 
-@keyframes float {
-    0% {
-        transform: translateY(0) translateX(0) rotate(0deg);
-        opacity  : 0;
-    }
-
-    10% {
-        opacity: 1;
-    }
-
-    90% {
-        opacity: 1;
-    }
-
-    100% {
-        transform: translateY(-100vh) translateX(100px) rotate(360deg);
-        opacity  : 0;
-    }
+/* ---------- 全屏背景双图层（复刻 pixiv：fixed inset 0 + cover + opacity 过渡） ---------- */
+.bg-layer {
+    position          : fixed;
+    inset             : 0;
+    z-index           : 0;
+    background-size   : cover;
+    background-position: 50% 0;
+    background-repeat : no-repeat;
+    opacity           : 0;
+    transition        : opacity 1s ease;
+    will-change       : opacity;
 }
 
-.image-info {
-    position       : absolute;
-    bottom         : 0;
-    left           : 0;
-    right          : 0;
-    background     : rgba(0, 0, 0, 0.6);
-    padding        : 10px 15px;
-    font-size      : clamp(0.75rem, 2.5vw, 0.9rem);
-    text-align     : center;
-    backdrop-filter: blur(5px);
-    opacity        : 0.8;
-    transition     : opacity 0.3s;
-    display        : flex;
-    justify-content: center;
-    gap            : 15px;
-    flex-wrap      : wrap;
-}
-
-.image-info span {
-    display    : flex;
-    align-items: center;
-    gap        : 5px;
-    white-space: nowrap;
-}
-
-.image-info:hover {
+.bg-layer.active {
     opacity: 1;
 }
 
-.pixiv-link {
-    position       : absolute;
-    top            : 15px;
-    right          : 15px;
-    background     : rgba(0, 96, 250, 0.8);
-    color          : white;
-    padding        : 6px 12px;
-    border-radius  : 20px;
-    font-size      : clamp(0.7rem, 2.5vw, 0.85rem);
-    text-decoration: none;
+/* 底部可读性渐变：随机图亮度不可控，为白色卡片/信息卡/页脚保证对比度
+   （与 pixiv 的差异：pixiv 使用固定暗色调插画故无遮罩） */
+.bg-shade {
+    position       : fixed;
+    inset          : 0;
+    z-index        : 1;
+    background     : linear-gradient(180deg, rgba(0, 0, 0, 0.10) 0%, rgba(0, 0, 0, 0.22) 55%, rgba(0, 0, 0, 0.55) 100%);
+    pointer-events : none;
+}
+
+/* ---------- 首屏加载遮罩 ---------- */
+.boot {
+    position        : fixed;
+    inset           : 0;
+    z-index         : 50;
+    display         : flex;
+    align-items     : center;
+    justify-content : center;
+    background      : #141414;
+    transition      : opacity 0.5s ease;
+}
+
+.boot.hidden {
+    opacity        : 0;
+    pointer-events : none;
+}
+
+.spinner {
+    width           : 36px;
+    height          : 36px;
+    border          : 3px solid rgba(255, 255, 255, 0.15);
+    border-top-color: #0096fa;
+    border-radius   : 50%;
+    animation       : spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ---------- 顶部右上角换图按钮（复刻 pixiv「注册账号」pill 按钮） ---------- */
+.btn-refresh {
+    position       : fixed;
+    top            : max(16px, env(safe-area-inset-top));
+    right          : max(16px, env(safe-area-inset-right));
+    z-index        : 10;
     display        : flex;
     align-items    : center;
-    gap            : 5px;
-    z-index        : 20;
-    backdrop-filter: blur(5px);
-    opacity        : 0.8;
-    transition     : opacity 0.3s;
+    gap            : 8px;
+    height         : 40px;
+    padding        : 0 18px;
+    border         : none;
+    border-radius  : 999999px;
+    background     : rgba(0, 0, 0, 0.32);
+    color          : #fff;
+    font-size      : 14px;
+    cursor         : pointer;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition     : background 0.2s ease;
 }
 
-.pixiv-link:hover {
-    opacity   : 1;
-    background: rgba(0, 96, 250, 1);
+.btn-refresh:hover {
+    background: rgba(0, 0, 0, 0.5);
 }
 
+.btn-refresh svg {
+    width : 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+/* ---------- 中部白色说明卡片（复刻 pixiv：margin auto 居中 + padding-top 20vh 定位） ---------- */
+.card-wrap {
+    position        : relative;
+    z-index         : 5;
+    width           : 392px;
+    max-width       : calc(100% - 32px);
+    margin          : 0 auto;
+    padding-top     : 20vh;
+    padding-bottom  : calc(40px + env(safe-area-inset-bottom));
+}
+
+.card {
+    display        : flex;
+    flex-direction : column;
+    align-items    : center;
+    margin         : 0 auto;
+    padding        : 0 40px 40px;
+    border-radius  : 24px;
+    background     : #fff;
+    color          : #222;
+    text-align     : center;
+    box-sizing     : border-box;
+}
+
+.card-title {
+    padding-top : 40px;
+    font-size   : 22px;
+    font-weight : 700;
+    letter-spacing: 0.5px;
+    color       : #111;
+}
+
+/* 标题下方几何细分割线 */
+.card-title::after {
+    content         : "";
+    display         : block;
+    width           : 36px;
+    height          : 3px;
+    margin          : 16px auto 0;
+    border-radius   : 3px;
+    background      : #0096fa;
+}
+
+.card-overview {
+    margin-top : 18px;
+    font-size  : 13px;
+    line-height: 1.7;
+    color      : #666;
+}
+
+.card-overview p + p {
+    margin-top: 6px;
+}
+
+/* ---------- API 地址区块 ---------- */
+.api-box {
+    width: 100%;
+    margin-top: 24px;
+}
+
+.api-label {
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    gap            : 6px;
+    font-size      : 12px;
+    font-weight    : 600;
+    letter-spacing : 1px;
+    color          : #999;
+}
+
+.api-label svg {
+    width : 14px;
+    height: 14px;
+}
+
+.code-row {
+    display        : flex;
+    align-items    : center;
+    gap            : 8px;
+    margin-top     : 10px;
+    padding        : 6px 6px 6px 14px;
+    background     : rgba(0, 0, 0, 0.045);
+    border-radius  : 12px;
+    border         : 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.api-url {
+    flex        : 1;
+    min-width   : 0;
+    font-family : 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+    font-size   : 12.5px;
+    color       : #333;
+    text-align  : left;
+    overflow    : hidden;
+    text-overflow: ellipsis;
+    white-space : nowrap;
+    user-select : all;
+    -webkit-user-select: all;
+}
+
+.btn-copy {
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    width          : 34px;
+    height         : 34px;
+    flex-shrink    : 0;
+    border         : none;
+    border-radius  : 10px;
+    background     : rgba(0, 0, 0, 0.05);
+    color          : #888;
+    cursor         : pointer;
+    transition     : background 0.2s, color 0.2s;
+}
+
+.btn-copy:hover {
+    background: rgba(0, 150, 250, 0.12);
+    color     : #0096fa;
+}
+
+.btn-copy svg {
+    width : 16px;
+    height: 16px;
+}
+
+.api-hint {
+    margin-top: 10px;
+    font-size : 11.5px;
+    color     : #aaa;
+}
+
+/* ---------- URL 数量徽章 ---------- */
+.url-count {
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    gap            : 6px;
+    margin-top     : 20px;
+    font-size      : 12px;
+    color          : #999;
+}
+
+.url-count svg {
+    width : 14px;
+    height: 14px;
+    color : #0096fa;
+}
+
+.url-count b {
+    color     : #0096fa;
+    font-weight: 700;
+}
+
+/* ---------- 主按钮（复刻 pixiv 登录按钮：蓝色 pill） ---------- */
+.btn-primary {
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    gap            : 8px;
+    width          : 100%;
+    height         : 48px;
+    margin-top     : 28px;
+    border         : none;
+    border-radius  : 999999px;
+    background     : rgb(0, 150, 250);
+    color          : #fff;
+    font-size      : 15px;
+    font-weight    : 600;
+    letter-spacing : 1px;
+    cursor         : pointer;
+    transition     : background 0.2s ease, opacity 0.2s ease;
+}
+
+.btn-primary:hover {
+    background: rgb(0, 138, 232);
+}
+
+.btn-primary:active {
+    opacity: 0.85;
+}
+
+.btn-primary svg {
+    width : 17px;
+    height: 17px;
+}
+
+/* 按钮图标旋转反馈 */
+.spinning svg {
+    animation: spin 0.5s linear;
+}
+
+/* ---------- 右下角透明信息卡（复刻 pixiv 背景图信息悬浮卡） ---------- */
+.info-card {
+    position       : fixed;
+    right          : max(16px, env(safe-area-inset-right));
+    bottom         : calc(48px + env(safe-area-inset-bottom));
+    z-index        : 8;
+    max-width      : min(320px, calc(100vw - 32px));
+    padding        : 8px 16px;
+    border-radius  : 12px;
+    background     : rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color          : #fff;
+    cursor         : pointer;
+    transition     : background 0.2s ease, transform 0.2s ease;
+}
+
+.info-card[hidden] {
+    display: none;
+}
+
+.info-card:hover {
+    background: rgba(0, 0, 0, 0.5);
+    transform : translateY(-2px);
+}
+
+.info-title {
+    font-size  : 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    overflow   : hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.info-meta {
+    display        : flex;
+    align-items    : center;
+    gap            : 12px;
+    margin-top     : 5px;
+    font-size      : 11px;
+    color          : rgba(255, 255, 255, 0.78);
+    overflow       : hidden;
+    white-space    : nowrap;
+}
+
+.info-meta span {
+    display    : flex;
+    align-items: center;
+    gap        : 5px;
+    min-width  : 0;
+    overflow   : hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.info-meta b {
+    font-weight: 600;
+    overflow   : hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.info-meta svg {
+    width       : 12px;
+    height      : 12px;
+    flex-shrink : 0;
+}
+
+.info-meta .info-jump {
+    width       : 13px;
+    height      : 13px;
+    margin-left : auto;
+    flex-shrink : 0;
+    opacity     : 0.7;
+}
+
+/* ---------- 底部页脚（复刻 pixiv 固定底栏） ---------- */
+.footer {
+    position        : fixed;
+    left            : 0;
+    right           : 0;
+    bottom          : 0;
+    z-index         : 6;
+    display         : flex;
+    align-items     : center;
+    justify-content : space-between;
+    gap             : 12px;
+    height          : calc(32px + env(safe-area-inset-bottom));
+    padding         : 0 16px;
+    padding-bottom  : env(safe-area-inset-bottom);
+    background      : rgba(0, 0, 0, 0.88);
+    color           : rgba(255, 255, 255, 0.65);
+    font-size       : 11px;
+    white-space     : nowrap;
+}
+
+/* ---------- 顶部通知 ---------- */
 .notification {
     position       : fixed;
-    top            : 20px;
+    top            : calc(20px + env(safe-area-inset-top));
     left           : 50%;
-    transform      : translateX(-50%);
-    background     : rgba(0, 0, 0, 0.8);
-    color          : white;
-    padding        : 12px 25px;
-    border-radius  : 30px;
-    backdrop-filter: blur(10px);
+    transform      : translateX(-50%) translateY(-8px);
+    z-index        : 100;
     display        : flex;
     align-items    : center;
-    gap            : 10px;
-    z-index        : 100;
+    gap            : 8px;
+    padding        : 10px 20px;
+    border-radius  : 999999px;
+    background     : rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color          : #fff;
+    font-size      : 13px;
     opacity        : 0;
-    transition     : opacity 0.3s, transform 0.3s;
     pointer-events : none;
-    font-size      : clamp(0.8rem, 3vw, 1rem);
+    transition     : opacity 0.3s ease, transform 0.3s ease;
+}
+
+.notification svg {
+    width : 15px;
+    height: 15px;
+    color : #ffb347;
 }
 
 .notification.show {
     opacity  : 1;
-    transform: translateX(-50%) translateY(10px);
+    transform: translateX(-50%) translateY(0);
 }
 
-.debug-info {
-    display      : none;
-    position     : absolute;
-    bottom       : 10px;
-    right        : 10px;
-    background   : rgba(0, 0, 0, 0.5);
-    color        : #aaa;
-    padding      : 5px 10px;
-    border-radius: 5px;
-    font-size    : 0.7rem;
-    z-index      : 30;
-    max-width    : 95%;
-    overflow     : hidden;
-    text-overflow: ellipsis;
-    white-space  : nowrap;
-}
+/* ============================================================
+   响应式适配（全屏展示为主，卡片悬浮其上）
+   断点策略：桌面 20vh 顶部偏移（pixiv 风）→ 平板 12vh → 手机 8vh 垂直居中偏上
+   ============================================================ */
 
-/* 移动设备优化 */
+/* ---------- 平板 / 中等高度 ---------- */
 @media (max-width: 768px) {
-    body {
-        padding: 10px;
+    .card-wrap {
+        padding-top: 12vh;
     }
 
-    .container {
-        max-height: 98vh;
-    }
-
-    .header,
-    .api-info {
-        padding: 12px;
-    }
-
-    .code-block {
-        padding: 10px;
-    }
-
-    .btn {
-        padding  : 10px 15px;
-        min-width: 120px;
-    }
-
-    .image-info {
-        padding: 8px 10px;
-        gap    : 8px;
+    .card {
+        max-height: calc(100dvh - 12vh - 90px - env(safe-area-inset-bottom));
+        max-height: calc(100vh - 12vh - 90px - env(safe-area-inset-bottom));
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
     }
 }
 
+/* ---------- 手机竖屏 ---------- */
 @media (max-width: 480px) {
-    .control-panel {
-        gap: 8px;
+    .card-wrap {
+        padding-top: 8vh;
+        padding-bottom: calc(72px + env(safe-area-inset-bottom));
     }
 
-    .btn {
-        min-width: 100px;
-        padding  : 10px 12px;
-        font-size: 0.85rem;
+    .card {
+        padding: 0 24px 28px;
+        max-height: calc(100dvh - 8vh - 104px - env(safe-area-inset-bottom));
+        max-height: calc(100vh - 8vh - 104px - env(safe-area-inset-bottom));
     }
 
-    .image-info {
-        justify-content: space-around;
-        gap            : 5px;
-        font-size      : 0.7rem;
-    }
-}
-
-/* 横屏设备优化 */
-@media (max-height: 600px) and (orientation: landscape) {
-    .container {
-        max-height    : 98vh;
-        flex-direction: row;
-        flex-wrap     : wrap;
-        align-items   : flex-start;
+    .card-title {
+        padding-top: 28px;
+        font-size  : 20px;
     }
 
-    .header {
-        width: 100%;
+    .card-title::after {
+        margin-top: 12px;
     }
 
-    .api-info {
-        width       : 45%;
-        margin-right: 10px;
+    .card-overview {
+        margin-top : 14px;
+        font-size  : 12.5px;
     }
 
-    .image-container {
-        width     : 53%;
-        height    : 60vh;
-        min-height: 200px;
+    .api-box {
+        margin-top: 18px;
     }
 
-    .control-panel {
-        width     : 100%;
-        margin-top: 10px;
-    }
-}
-
-/* 超小高度设备 */
-@media (max-height: 450px) {
-
-    .header,
-    .api-info {
-        padding: 8px 10px;
+    .btn-primary {
+        height: 46px;
+        margin-top: 20px;
     }
 
     .url-count {
-        margin-top: 5px;
-        padding   : 4px 8px;
-        font-size : 0.8rem;
+        margin-top: 16px;
     }
 
-    .code-block {
-        padding  : 8px;
-        margin   : 8px 0;
-        font-size: 0.8rem;
+    /* 右上角按钮收缩为圆形图标，节省横向空间 */
+    .btn-refresh {
+        width      : 40px;
+        padding    : 0;
+        justify-content: center;
     }
 
-    .btn {
-        padding  : 8px 12px;
-        min-width: 90px;
-        font-size: 0.8rem;
-    }
-
-    .image-info {
+    .btn-refresh span {
         display: none;
+    }
+
+    /* 信息卡更紧凑，标题最多一行 */
+    .info-card {
+        bottom : calc(40px + env(safe-area-inset-bottom));
+        padding: 6px 12px;
+    }
+
+    .info-title {
+        font-size: 12px;
+    }
+
+    .info-meta {
+        font-size: 10.5px;
+        gap      : 8px;
+    }
+
+    .footer {
+        font-size: 10px;
+        padding  : 0 12px;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+}
+
+/* ---------- 超小屏（<=360px）进一步压缩 ---------- */
+@media (max-width: 360px) {
+    .card-wrap {
+        padding-top: 6vh;
+    }
+
+    .card {
+        max-height: calc(100dvh - 6vh - 104px - env(safe-area-inset-bottom));
+        max-height: calc(100vh - 6vh - 104px - env(safe-area-inset-bottom));
+        padding   : 0 18px 24px;
+    }
+
+    .card-title {
+        padding-top: 24px;
+        font-size  : 18px;
+    }
+}
+
+/* ---------- 手机横屏 / 小高度设备：压缩卡片并允许内部滚动 ---------- */
+@media (max-height: 600px) and (orientation: landscape) {
+    .card-wrap {
+        padding-top  : 24px;
+        padding-bottom: calc(40px + env(safe-area-inset-bottom));
+    }
+
+    .card {
+        max-height: calc(100dvh - 24px - 40px - 32px - env(safe-area-inset-bottom));
+        max-height: calc(100vh - 24px - 40px - 32px - env(safe-area-inset-bottom));
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .card-title {
+        padding-top: 20px;
+    }
+
+    .btn-primary {
+        margin-top: 16px;
+    }
+
+    .info-card {
+        display: none; /* 横屏信息卡遮挡空间，隐藏 */
+    }
+}
+
+/* ---------- 超宽屏：卡片保持 392px，背景居中 ---------- */
+@media (min-width: 1600px) {
+    .card-wrap {
+        padding-top: 18vh;
+    }
+}
+
+/* 大屏下背景取中上部（复刻 pixiv 50% 0），小屏竖图居中对齐主体 */
+@media (max-width: 768px) {
+    .bg-layer {
+        background-position: 50% 50%;
     }
 }

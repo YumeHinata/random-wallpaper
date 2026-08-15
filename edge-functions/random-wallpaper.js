@@ -167,12 +167,7 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
         }
         responseHeaders.set("Access-Control-Allow-Origin", "*"); // 补个跨域
 
-        // 返回流式二进制数据
-        return new Response(imageResponse.body, {
-            status: 200,
-            headers: responseHeaders
-        });
-
+        // 注入作品 ID 头（供首页信息卡使用）
         responseHeaders.set("X-Pixiv-Id", pixivId);
 
         // 允许浏览器读取
@@ -180,6 +175,12 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
             "Access-Control-Expose-Headers",
             "X-Pixiv-Id"
         );
+
+        // 返回流式二进制数据
+        return new Response(imageResponse.body, {
+            status: 200,
+            headers: responseHeaders
+        });
     } catch (e) {
         return new Response(`[反代传输异常]: ${e.message}`, {
             status: 500,
