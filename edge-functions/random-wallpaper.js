@@ -124,67 +124,71 @@ async function generateMD5(str) {
 }
 
 /**
- * 完美的流式反代封装函数
+ * 带重试的流式反代封装函数
+ * 先完整缓冲上游响应再返回，避免多跳链路中流式传输中断
  * @param {string} signedUrl - 带鉴权的源站图片URL
  * @param {Request} request - 原始请求对象，用于提取UA等信息
  * @param {Object} noCacheHeaders - 统一的防缓存响应头
  * @param {string} pixivId - Pixiv图片ID
  */
 async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
-    try {
-        // 边缘节点代为发起请求
-        const imageResponse = await fetch(signedUrl, {
-            method: "GET",
-            headers: {
-                "User-Agent": request.headers.get("User-Agent") || "Mozilla/5.0",
-                "Accept": request.headers.get("Accept") || "image/*",
-                "Accept-Encoding": request.headers.get("Accept-Encoding") || ""
-            }
-        });
+    const MAX_RETRIES = 2;
 
-        // 如果源站挂了，直接报错
-        if (!imageResponse.ok) {
-            return new Response(`[源站错误] 状态码: ${imageResponse.status}`, {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const imageResponse = await fetch(signedUrl, {
+                method: "GET",
+                headers: {
+                    "User-Agent": request.headers.get("User-Agent") || "Mozilla/5.0",
+                    "Accept": request.headers.get("Accept") || "image/*",
+                    "Accept-Encoding": request.headers.get("Accept-Encoding") || ""
+                }
+            });
+
+            if (!imageResponse.ok) {
+                return new Response(`[源站错误] 状态码: ${imageResponse.status}`, {
+                    status: 500,
+                    headers: noCacheHeaders
+                });
+            }
+
+            // 完整缓冲上游响应体，避免流式传输中途断连
+            // arrayBuffer() 会等待全部数据接收完毕，如果连接中断会抛异常（触发重试）
+            const body = await imageResponse.arrayBuffer();
+
+            // 组装响应头
+            const responseHeaders = new Headers();
+
+            const keepHeaders = ['content-type', 'accept-ranges', 'etag'];
+            for (const headerName of keepHeaders) {
+                if (imageResponse.headers.has(headerName)) {
+                    responseHeaders.set(headerName, imageResponse.headers.get(headerName));
+                }
+            }
+
+            // 使用实际缓冲大小作为 Content-Length（比上游的更可靠）
+            responseHeaders.set("content-length", String(body.byteLength));
+            // 缓冲后不再透传 content-encoding，避免客户端二次解压
+            responseHeaders.delete("content-encoding");
+
+            for (const [key, value] of Object.entries(noCacheHeaders)) {
+                responseHeaders.set(key, value);
+            }
+            responseHeaders.set("Access-Control-Allow-Origin", "*");
+            responseHeaders.set("X-Pixiv-Id", pixivId);
+            responseHeaders.set("Access-Control-Expose-Headers", "X-Pixiv-Id");
+
+            return new Response(body, {
+                status: 200,
+                headers: responseHeaders
+            });
+
+        } catch (e) {
+            if (attempt < MAX_RETRIES) continue;
+            return new Response(`[反代传输异常]: ${e.message}`, {
                 status: 500,
                 headers: noCacheHeaders
             });
         }
-
-        // 组装响应头
-        const responseHeaders = new Headers();
-
-        // 继承源站必带的媒体属性
-        const keepHeaders = ['content-type', 'content-length', 'accept-ranges', 'etag'];
-        for (const headerName of keepHeaders) {
-            if (imageResponse.headers.has(headerName)) {
-                responseHeaders.set(headerName, imageResponse.headers.get(headerName));
-            }
-        }
-
-        // 注入防缓存头
-        for (const [key, value] of Object.entries(noCacheHeaders)) {
-            responseHeaders.set(key, value);
-        }
-        responseHeaders.set("Access-Control-Allow-Origin", "*"); // 补个跨域
-
-        // 注入作品 ID 头（供首页信息卡使用）
-        responseHeaders.set("X-Pixiv-Id", pixivId);
-
-        // 允许浏览器读取
-        responseHeaders.set(
-            "Access-Control-Expose-Headers",
-            "X-Pixiv-Id"
-        );
-
-        // 返回流式二进制数据
-        return new Response(imageResponse.body, {
-            status: 200,
-            headers: responseHeaders
-        });
-    } catch (e) {
-        return new Response(`[反代传输异常]: ${e.message}`, {
-            status: 500,
-            headers: noCacheHeaders
-        });
     }
 }
