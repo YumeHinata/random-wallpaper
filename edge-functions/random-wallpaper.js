@@ -133,8 +133,12 @@ async function generateMD5(str) {
  */
 async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
     const MAX_RETRIES = 2;
+    const ATTEMPT_TIMEOUT_MS = 12000;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+
         try {
             const imageResponse = await fetch(signedUrl, {
                 method: "GET",
@@ -142,21 +146,22 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
                     "User-Agent": request.headers.get("User-Agent") || "Mozilla/5.0",
                     "Accept": request.headers.get("Accept") || "image/*",
                     "Accept-Encoding": request.headers.get("Accept-Encoding") || ""
-                }
+                },
+                signal: controller.signal
             });
 
             if (!imageResponse.ok) {
+                clearTimeout(timer);
+                if (imageResponse.status >= 500 && attempt < MAX_RETRIES) continue;
                 return new Response(`[源站错误] 状态码: ${imageResponse.status}`, {
                     status: 500,
                     headers: noCacheHeaders
                 });
             }
 
-            // 完整缓冲上游响应体，避免流式传输中途断连
-            // arrayBuffer() 会等待全部数据接收完毕，如果连接中断会抛异常（触发重试）
             const body = await imageResponse.arrayBuffer();
+            clearTimeout(timer);
 
-            // 组装响应头
             const responseHeaders = new Headers();
 
             const keepHeaders = ['content-type', 'accept-ranges', 'etag'];
@@ -166,9 +171,7 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
                 }
             }
 
-            // 使用实际缓冲大小作为 Content-Length（比上游的更可靠）
             responseHeaders.set("content-length", String(body.byteLength));
-            // 缓冲后不再透传 content-encoding，避免客户端二次解压
             responseHeaders.delete("content-encoding");
 
             for (const [key, value] of Object.entries(noCacheHeaders)) {
@@ -184,6 +187,7 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
             });
 
         } catch (e) {
+            clearTimeout(timer);
             if (attempt < MAX_RETRIES) continue;
             return new Response(`[反代传输异常]: ${e.message}`, {
                 status: 500,
