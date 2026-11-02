@@ -124,21 +124,27 @@ async function generateMD5(str) {
 }
 
 /**
- * 带重试的流式反代封装函数
+ * 带重试的流式反代封装函数（优化版）
  * 先完整缓冲上游响应再返回，避免多跳链路中流式传输中断
+ * 支持：5xx 错误重试、超时重试、指数退避、详细错误分类
  * @param {string} signedUrl - 带鉴权的源站图片URL
  * @param {Request} request - 原始请求对象，用于提取UA等信息
  * @param {Object} noCacheHeaders - 统一的防缓存响应头
  * @param {string} pixivId - Pixiv图片ID
  */
 async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
-    const MAX_RETRIES = 2;
-    const ATTEMPT_TIMEOUT_MS = 12000;
-
+    const MAX_RETRIES = 3; // 最多重试3次（共4次尝试）
+    const ATTEMPT_TIMEOUT_MS = 5000; // 5秒超时（覆盖P95，快速失败）
+    const RETRY_DELAYS = [500, 1000, 2000]; // 指数退避：0.5s, 1s, 2s
+    
+    let lastError = null;
+    let lastErrorType = null;
+    
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
-
+        const startTime = Date.now();
+        
         try {
             const imageResponse = await fetch(signedUrl, {
                 method: "GET",
@@ -150,49 +156,103 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
                 signal: controller.signal
             });
 
-            if (!imageResponse.ok) {
-                clearTimeout(timer);
-                if (imageResponse.status >= 500 && attempt < MAX_RETRIES) continue;
-                return new Response(`[源站错误] 状态码: ${imageResponse.status}`, {
-                    status: 500,
+            const responseTime = Date.now() - startTime;
+            clearTimeout(timer);
+            
+            // 成功响应
+            if (imageResponse.ok) {
+                const body = await imageResponse.arrayBuffer();
+                
+                const responseHeaders = new Headers();
+                
+                // 保留关键响应头
+                const keepHeaders = ['content-type', 'accept-ranges', 'etag'];
+                for (const headerName of keepHeaders) {
+                    if (imageResponse.headers.has(headerName)) {
+                        responseHeaders.set(headerName, imageResponse.headers.get(headerName));
+                    }
+                }
+                
+                responseHeaders.set("content-length", String(body.byteLength));
+                responseHeaders.delete("content-encoding");
+                
+                // 应用防缓存头
+                for (const [key, value] of Object.entries(noCacheHeaders)) {
+                    responseHeaders.set(key, value);
+                }
+                
+                // 添加诊断头
+                responseHeaders.set("Access-Control-Allow-Origin", "*");
+                responseHeaders.set("X-Pixiv-Id", pixivId);
+                responseHeaders.set("Access-Control-Expose-Headers", "X-Pixiv-Id, X-Response-Time, X-Attempt");
+                responseHeaders.set("X-Response-Time", `${responseTime}ms`);
+                responseHeaders.set("X-Attempt", `${attempt + 1}/${MAX_RETRIES + 1}`);
+                
+                return new Response(body, {
+                    status: 200,
+                    headers: responseHeaders
+                });
+            }
+            
+            // 错误处理：5xx 源站错误
+            if (imageResponse.status >= 500) {
+                lastError = `源站返回 ${imageResponse.status}`;
+                lastErrorType = '5xx';
+                
+                if (attempt < MAX_RETRIES) {
+                    // 等待后重试（指数退避）
+                    await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt] || 1000));
+                    continue;
+                }
+                
+                return new Response(`[源站错误] ${lastError}（重试 ${attempt}/${MAX_RETRIES} 次后失败）`, {
+                    status: 502,
                     headers: noCacheHeaders
                 });
             }
-
-            const body = await imageResponse.arrayBuffer();
-            clearTimeout(timer);
-
-            const responseHeaders = new Headers();
-
-            const keepHeaders = ['content-type', 'accept-ranges', 'etag'];
-            for (const headerName of keepHeaders) {
-                if (imageResponse.headers.has(headerName)) {
-                    responseHeaders.set(headerName, imageResponse.headers.get(headerName));
-                }
+            
+            // 错误处理：4xx 客户端错误（不重试）
+            if (imageResponse.status >= 400) {
+                return new Response(`[源站拒绝] 状态码: ${imageResponse.status}`, {
+                    status: imageResponse.status,
+                    headers: noCacheHeaders
+                });
             }
-
-            responseHeaders.set("content-length", String(body.byteLength));
-            responseHeaders.delete("content-encoding");
-
-            for (const [key, value] of Object.entries(noCacheHeaders)) {
-                responseHeaders.set(key, value);
-            }
-            responseHeaders.set("Access-Control-Allow-Origin", "*");
-            responseHeaders.set("X-Pixiv-Id", pixivId);
-            responseHeaders.set("Access-Control-Expose-Headers", "X-Pixiv-Id");
-
-            return new Response(body, {
-                status: 200,
-                headers: responseHeaders
-            });
-
+            
         } catch (e) {
             clearTimeout(timer);
-            if (attempt < MAX_RETRIES) continue;
-            return new Response(`[反代传输异常]: ${e.message}`, {
-                status: 500,
+            const responseTime = Date.now() - startTime;
+            
+            // 错误分类
+            if (e.name === 'AbortError') {
+                lastError = `超时 (${ATTEMPT_TIMEOUT_MS}ms)`;
+                lastErrorType = 'timeout';
+            } else if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+                lastError = `网络错误: ${e.message}`;
+                lastErrorType = 'network';
+            } else {
+                lastError = `传输异常: ${e.message}`;
+                lastErrorType = 'unknown';
+            }
+            
+            // 超时和网络错误可以重试
+            if (attempt < MAX_RETRIES && (lastErrorType === 'timeout' || lastErrorType === 'network')) {
+                // 等待后重试（指数退避）
+                await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt] || 1000));
+                continue;
+            }
+            
+            // 重试失败或其他错误
+            return new Response(`[反代失败] ${lastError}（重试 ${attempt}/${MAX_RETRIES} 次后放弃）`, {
+                status: 504,
                 headers: noCacheHeaders
             });
         }
     }
+    
+    // 理论上不会到达这里
+    return new Response(`[未知错误] 重试逻辑异常`, {
+        status: 500,
+        headers: noCacheHeaders
+    });
 }
