@@ -2,6 +2,7 @@
 
 # ====== 1. CONFIG AREA ======
 REMOTE_TXT_URL="https://rdimg.yumehinata.com/urls.txt" # ✨ Fetch latest URLs from your server
+BASE_URL="https://rdimg.yumehinata.com"                # ✨ Your domain for /img/{id}.jpg
 FAILED_LOG_PATH="./failed_urls.txt"                    # ✨ Where to save stubborn failures
 REFERER="https://yumehinata.com/"
 USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -65,18 +66,28 @@ while [ ${#pending_urls[@]} -gt 0 ] && [ $round -le $MAX_ROUNDS ]; do
         
         # ====== 3. CORE BLOCK FOR THREADS (后台子进程) ======
         (
-            # 发送请求，-L 跟随重定向，-w 获取最终状态码，-m 10 秒超时
-            http_status=$(curl -sL -o /dev/null -w "%{http_code}" -m 10 -H "Referer: $REFERER" -A "$USER_AGENT" "$url")
+            # 提取 Pixiv ID
+            pixiv_id=$(echo "$url" | grep -oP '/\K\d+(?=_p\d+_)')
+            
+            if [ -z "$pixiv_id" ]; then
+                echo "false|Invalid URL format|$url" > "$res_file"
+                echo >&3
+                exit 0
+            fi
+            
+            # 请求新的 /img/{id}.jpg 路由（触发 CDN 缓存）
+            warmup_url="$BASE_URL/img/$pixiv_id.jpg"
+            http_status=$(curl -sL -o /dev/null -w "%{http_code}" -m 10 -H "Referer: $REFERER" -A "$USER_AGENT" "$warmup_url")
             curl_res=$?
             
-            # 判断成功与失败 (Invoke-WebRequest 默认 2xx-3xx 为成功，4xx/5xx 或网络异常会抛错)
+            # 判断成功与失败
             if [ $curl_res -eq 0 ] && [ "$http_status" -ge 200 ] && [ "$http_status" -lt 400 ]; then
-                echo "true|Status: $http_status|$url" > "$res_file"
+                echo "true|Status: $http_status|$warmup_url" > "$res_file"
             else
                 if [ $curl_res -eq 28 ] || [ "$http_status" -eq 0 ]; then
-                    echo "false|Timeout/Disconnect|$url" > "$res_file"
+                    echo "false|Timeout/Disconnect|$warmup_url" > "$res_file"
                 else
-                    echo "false|Status: $http_status|$url" > "$res_file"
+                    echo "false|Status: $http_status|$warmup_url" > "$res_file"
                 fi
             fi
             
