@@ -3,6 +3,12 @@ let cachedUrls = null;
 let lastFetched = 0;
 const CACHE_TTL = 10 * 60 * 1000; // 10分钟列表缓存
 
+// CDN 缓存配置：7 天
+const CDN_CACHE_HEADERS = {
+    "Cache-Control": "public, max-age=604800",
+    "CDN-Cache-Control": "public, max-age=604800"
+};
+
 function extractPixivId(url) {
     const match = url.match(/\/(\d+)_p\d+_/);
     return match ? match[1] : "";
@@ -17,74 +23,152 @@ export default async function onRequest(context) {
     };
 
     try {
-        // 从官方规范的 context.env 中读取环境变量
-        const URL_LIST = context.env.URL_LIST;
-        const TOKEN_TYPE = context.env.TOKEN_TYPE || "0";
-        const SECRET_KEY = context.env.SECRET_KEY || "";
+        const url = new URL(context.request.url);
+        const pathname = url.pathname;
 
-        if (!URL_LIST) throw new Error("环境配置中缺少 URL_LIST");
-
-        const now = Date.now();
-        let urls = cachedUrls;
-
-        // ====== 容灾降级列表获取 ======
-        if (!urls || (now - lastFetched > CACHE_TTL)) {
-            const cacheBuster = URL_LIST.includes('?') ? `&_t=${now}` : `?_t=${now}`;
-
-            try {
-                const response = await fetch(URL_LIST + cacheBuster, {
-                    method: "GET",
-                    headers: {
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-                    }
+        // ====== 路由：/img/{id}.jpg - 直接返回图片（可被 CDN 缓存）======
+        if (pathname.startsWith('/img/') && pathname.endsWith('.jpg')) {
+            const pixivId = pathname.match(/\/img\/(\d+)\.jpg/)?.[1];
+            if (!pixivId) {
+                return new Response('[错误] 无效的图片 ID', {
+                    status: 400,
+                    headers: NO_CACHE_HEADERS
                 });
-
-                if (!response.ok) throw new Error(`jsDelivr 返回错误码: ${response.status}`);
-
-                const text = await response.text();
-                const freshUrls = text.split('\n').filter(url => url.trim() !== '');
-
-                if (freshUrls.length === 0) throw new Error("抓取到的 URL 列表为空");
-
-                urls = freshUrls;
-                cachedUrls = freshUrls;
-                lastFetched = now;
-
-            } catch (fetchError) {
-                // 容灾：有旧数据就直接复用
-                if (cachedUrls && cachedUrls.length > 0) {
-                    urls = cachedUrls;
-                    lastFetched = now - CACHE_TTL + (1 * 60 * 1000);
-                } else {
-                    throw fetchError;
-                }
             }
+
+            // 从 URL 列表中找到对应的完整 URL
+            const URL_LIST = context.env.URL_LIST;
+            const TOKEN_TYPE = context.env.TOKEN_TYPE || "0";
+            const SECRET_KEY = context.env.SECRET_KEY || "";
+
+            if (!URL_LIST) throw new Error("环境配置中缺少 URL_LIST");
+
+            const originalUrl = await findUrlByPixivId(pixivId, URL_LIST);
+            if (!originalUrl) {
+                return new Response('[错误] 未找到对应的图片 URL', {
+                    status: 404,
+                    headers: NO_CACHE_HEADERS
+                });
+            }
+
+            const signedUrl = await generateSignedUrl(originalUrl, TOKEN_TYPE, SECRET_KEY);
+
+            return await handleStreamProxy(
+                signedUrl,
+                context.request,
+                CDN_CACHE_HEADERS, // 使用 CDN 缓存头
+                pixivId
+            );
         }
 
-        // ====== 随机抽取 ======
-        const randomIndex = Math.floor(Math.random() * urls.length);
-        const originalUrl = urls[randomIndex].trim();
+        // ====== 路由：/random-wallpaper - 302 重定向到 /img/{id}.jpg ======
+        if (pathname === '/random-wallpaper' || pathname === '/') {
+            const URL_LIST = context.env.URL_LIST;
 
-        const pixivId = extractPixivId(originalUrl);
+            if (!URL_LIST) throw new Error("环境配置中缺少 URL_LIST");
 
-        const signedUrl = await generateSignedUrl(
-            originalUrl,
-            TOKEN_TYPE,
-            SECRET_KEY
-        );
+            const now = Date.now();
+            let urls = cachedUrls;
 
-        return await handleStreamProxy(
-            signedUrl,
-            context.request,
-            NO_CACHE_HEADERS,
-            pixivId
-        );
+            // ====== 容灾降级列表获取 ======
+            if (!urls || (now - lastFetched > CACHE_TTL)) {
+                const cacheBuster = URL_LIST.includes('?') ? `&_t=${now}` : `?_t=${now}`;
+
+                try {
+                    const response = await fetch(URL_LIST + cacheBuster, {
+                        method: "GET",
+                        headers: {
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+                        }
+                    });
+
+                    if (!response.ok) throw new Error(`jsDelivr 返回错误码: ${response.status}`);
+
+                    const text = await response.text();
+                    const freshUrls = text.split('\n').filter(url => url.trim() !== '');
+
+                    if (freshUrls.length === 0) throw new Error("抓取到的 URL 列表为空");
+
+                    urls = freshUrls;
+                    cachedUrls = freshUrls;
+                    lastFetched = now;
+
+                } catch (fetchError) {
+                    // 容灾：有旧数据就直接复用
+                    if (cachedUrls && cachedUrls.length > 0) {
+                        urls = cachedUrls;
+                        lastFetched = now - CACHE_TTL + (1 * 60 * 1000);
+                    } else {
+                        throw fetchError;
+                    }
+                }
+            }
+
+            // ====== 随机抽取 ======
+            const randomIndex = Math.floor(Math.random() * urls.length);
+            const originalUrl = urls[randomIndex].trim();
+            const pixivId = extractPixivId(originalUrl);
+
+            // 302 重定向到可缓存的图片 URL
+            const imageUrl = `/img/${pixivId}.jpg`;
+            return new Response(null, {
+                status: 302,
+                headers: {
+                    "Location": imageUrl,
+                    ...NO_CACHE_HEADERS
+                }
+            });
+        }
+
+        // ====== 其他路由：404 ======
+        return new Response('[错误] 未找到路由', {
+            status: 404,
+            headers: NO_CACHE_HEADERS
+        });
+
     } catch (error) {
         return new Response(`[边缘函数错误]: ${error.message}`, {
             status: 500,
             headers: NO_CACHE_HEADERS
         });
     }
+}
+
+// 根据 Pixiv ID 查找完整的图片 URL
+async function findUrlByPixivId(pixivId, urlListSource) {
+    // 先尝试从缓存中查找
+    if (cachedUrls && cachedUrls.length > 0) {
+        for (const url of cachedUrls) {
+            if (url.includes(`/${pixivId}_p`)) {
+                return url.trim();
+            }
+        }
+    }
+
+    // 缓存中没有，重新获取列表
+    try {
+        const cacheBuster = urlListSource.includes('?') ? `&_t=${Date.now()}` : `?_t=${Date.now()}`;
+        const response = await fetch(urlListSource + cacheBuster);
+        if (!response.ok) return null;
+
+        const text = await response.text();
+        const urls = text.split('\n').filter(url => url.trim() !== '');
+
+        // 更新缓存
+        cachedUrls = urls;
+        lastFetched = Date.now();
+
+        // 查找匹配的 URL
+        for (const url of urls) {
+            if (url.includes(`/${pixivId}_p`)) {
+                return url.trim();
+            }
+        }
+    } catch (e) {
+        console.error('查找 URL 失败:', e);
+    }
+
+    return null;
 }
 
 // 鉴权与 MD5 算法
@@ -128,10 +212,10 @@ async function generateMD5(str) {
  * 先完整缓冲上游响应再返回，避免多跳链路中流式传输中断
  * @param {string} signedUrl - 带鉴权的源站图片URL
  * @param {Request} request - 原始请求对象，用于提取UA等信息
- * @param {Object} noCacheHeaders - 统一的防缓存响应头
+ * @param {Object} cacheHeaders - 缓存响应头（NO_CACHE 或 CDN_CACHE）
  * @param {string} pixivId - Pixiv图片ID
  */
-async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
+async function handleStreamProxy(signedUrl, request, cacheHeaders, pixivId) {
     const MAX_RETRIES = 2;
     const ATTEMPT_TIMEOUT_MS = 12000;
 
@@ -155,7 +239,7 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
                 if (imageResponse.status >= 500 && attempt < MAX_RETRIES) continue;
                 return new Response(`[源站错误] 状态码: ${imageResponse.status}`, {
                     status: 500,
-                    headers: noCacheHeaders
+                    headers: cacheHeaders
                 });
             }
 
@@ -174,7 +258,8 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
             responseHeaders.set("content-length", String(body.byteLength));
             responseHeaders.delete("content-encoding");
 
-            for (const [key, value] of Object.entries(noCacheHeaders)) {
+            // 应用缓存头
+            for (const [key, value] of Object.entries(cacheHeaders)) {
                 responseHeaders.set(key, value);
             }
             responseHeaders.set("Access-Control-Allow-Origin", "*");
@@ -191,7 +276,7 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
             if (attempt < MAX_RETRIES) continue;
             return new Response(`[反代传输异常]: ${e.message}`, {
                 status: 500,
-                headers: noCacheHeaders
+                headers: cacheHeaders
             });
         }
     }
