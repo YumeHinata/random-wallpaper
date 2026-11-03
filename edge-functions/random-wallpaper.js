@@ -236,11 +236,17 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
             clearTimeout(timer);
             const responseTime = Date.now() - startTime;
             
-            // 错误分类
+            // 错误分类（更宽松的模式）
             if (e.name === 'AbortError') {
                 lastError = `超时 (${ATTEMPT_TIMEOUT_MS}ms)`;
                 lastErrorType = 'timeout';
-            } else if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+            } else if (e.message.includes('Failed to fetch') || 
+                       e.message.includes('NetworkError') ||
+                       e.message.includes('net_exception') ||
+                       e.message.includes('peer_error') ||
+                       e.message.includes('connection') ||
+                       e.message.includes('ECONNRESET') ||
+                       e.message.includes('ETIMEDOUT')) {
                 lastError = `网络错误: ${e.message}`;
                 lastErrorType = 'network';
             } else {
@@ -248,8 +254,9 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
                 lastErrorType = 'unknown';
             }
             
-            // 超时和网络错误可以重试
-            if (attempt < MAX_RETRIES && (lastErrorType === 'timeout' || lastErrorType === 'network')) {
+            // 除了 4xx 客户端错误，其他都重试（超时、网络、未知错误）
+            // 这样可以捕获更多临时性故障，如 net_exception_peer_error
+            if (attempt < MAX_RETRIES) {
                 // 等待后重试（指数退避）
                 await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt] || 1000));
                 continue;
