@@ -184,7 +184,7 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
                 // 添加诊断头
                 responseHeaders.set("Access-Control-Allow-Origin", "*");
                 responseHeaders.set("X-Pixiv-Id", pixivId);
-                responseHeaders.set("Access-Control-Expose-Headers", "X-Pixiv-Id, X-Response-Time, X-Attempt");
+                responseHeaders.set("Access-Control-Expose-Headers", "X-Pixiv-Id, X-Response-Time, X-Attempt, X-Error-Type, X-Error-Message");
                 responseHeaders.set("X-Response-Time", `${responseTime}ms`);
                 responseHeaders.set("X-Attempt", `${attempt + 1}/${MAX_RETRIES + 1}`);
                 
@@ -205,17 +205,30 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
                     continue;
                 }
                 
+                // 所有重试失败，返回错误（带诊断头）
+                const errorHeaders = new Headers(noCacheHeaders);
+                errorHeaders.set("X-Response-Time", `${responseTime}ms`);
+                errorHeaders.set("X-Attempt", `${attempt + 1}/${MAX_RETRIES + 1}`);
+                errorHeaders.set("X-Error-Type", lastErrorType);
+                errorHeaders.set("X-Error-Message", lastError);
+                
                 return new Response(`[源站错误] ${lastError}（重试 ${attempt}/${MAX_RETRIES} 次后失败）`, {
                     status: 502,
-                    headers: noCacheHeaders
+                    headers: errorHeaders
                 });
             }
             
             // 错误处理：4xx 客户端错误（不重试）
             if (imageResponse.status >= 400) {
+                const errorHeaders = new Headers(noCacheHeaders);
+                errorHeaders.set("X-Response-Time", `${responseTime}ms`);
+                errorHeaders.set("X-Attempt", `${attempt + 1}/${MAX_RETRIES + 1}`);
+                errorHeaders.set("X-Error-Type", "4xx");
+                errorHeaders.set("X-Error-Message", `源站返回 ${imageResponse.status}`);
+                
                 return new Response(`[源站拒绝] 状态码: ${imageResponse.status}`, {
                     status: imageResponse.status,
-                    headers: noCacheHeaders
+                    headers: errorHeaders
                 });
             }
             
@@ -242,10 +255,16 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
                 continue;
             }
             
-            // 重试失败或其他错误
+            // 重试失败或其他错误，返回错误（带诊断头）
+            const errorHeaders = new Headers(noCacheHeaders);
+            errorHeaders.set("X-Response-Time", `${responseTime}ms`);
+            errorHeaders.set("X-Attempt", `${attempt + 1}/${MAX_RETRIES + 1}`);
+            errorHeaders.set("X-Error-Type", lastErrorType);
+            errorHeaders.set("X-Error-Message", lastError);
+            
             return new Response(`[反代失败] ${lastError}（重试 ${attempt}/${MAX_RETRIES} 次后放弃）`, {
                 status: 504,
-                headers: noCacheHeaders
+                headers: errorHeaders
             });
         }
     }
