@@ -124,25 +124,30 @@ async function generateMD5(str) {
 }
 
 /**
- * 带重试的流式反代封装函数（优化版）
+ * 带重试的流式反代封装函数（渐进式超时优化版）
  * 先完整缓冲上游响应再返回，避免多跳链路中流式传输中断
- * 支持：5xx 错误重试、超时重试、指数退避、详细错误分类
+ * 支持：渐进式超时、5xx/网络错误重试、详细错误分类
+ * 基于日志数据：P50=25ms, P75=970ms, P90=1595ms, P95=3003ms
  * @param {string} signedUrl - 带鉴权的源站图片URL
  * @param {Request} request - 原始请求对象，用于提取UA等信息
  * @param {Object} noCacheHeaders - 统一的防缓存响应头
  * @param {string} pixivId - Pixiv图片ID
  */
 async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
-    const MAX_RETRIES = 3; // 最多重试3次（共4次尝试）
-    const ATTEMPT_TIMEOUT_MS = 5000; // 5秒超时（覆盖P95，快速失败）
-    const RETRY_DELAYS = [500, 1000, 2000]; // 指数退避：0.5s, 1s, 2s
+    // 渐进式超时策略（基于实际日志数据）
+    // 第1次：1.5秒（覆盖~85%请求），第2次：2.5秒（覆盖~93%），第3次：3秒（覆盖P95+）
+    // 最坏情况：1.5 + 0.3 + 2.5 + 0.5 + 3.0 = 7.8秒（安全在10秒网关限制内）
+    const TIMEOUTS = [1500, 2500, 3000]; // 每次尝试的超时时间（递增）
+    const MAX_RETRIES = 2; // 最多重试2次（共3次尝试）
+    const RETRY_DELAYS = [300, 500]; // 重试间隔：0.3s, 0.5s
     
     let lastError = null;
     let lastErrorType = null;
     
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+        const attemptTimeout = TIMEOUTS[attempt] || TIMEOUTS[TIMEOUTS.length - 1];
+        const timer = setTimeout(() => controller.abort(), attemptTimeout);
         const startTime = Date.now();
         
         try {
@@ -238,7 +243,7 @@ async function handleStreamProxy(signedUrl, request, noCacheHeaders, pixivId) {
             
             // 错误分类（更宽松的模式）
             if (e.name === 'AbortError') {
-                lastError = `超时 (${ATTEMPT_TIMEOUT_MS}ms)`;
+                lastError = `超时 (${attemptTimeout}ms)`;
                 lastErrorType = 'timeout';
             } else if (e.message.includes('Failed to fetch') || 
                        e.message.includes('NetworkError') ||
